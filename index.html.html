@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jégkorong Sorsolás Generáló</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        /* Nyomtatási beállítások - Ez garantálja a tökéletes A4 fekvő nézetet */
+        @media print {
+            @page { size: A4 landscape; margin: 0; }
+            body { margin: 0; background-color: white; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            .print-hide { display: none !important; }
+            #nyomtatasi-terulet {
+                width: 297mm !important; height: 210mm !important; margin: 0 !important; padding: 10mm !important;
+                box-shadow: none !important; border: none !important; border-radius: 0 !important; transform: scale(1) !important;
+                overflow: hidden !important; page-break-after: avoid !important; page-break-inside: avoid !important;
+                background-color: white !important; position: relative;
+            }
+        }
+        /* Görgetősáv dizájn a bal oldali menühöz */
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+    </style>
+</head>
+<body class="bg-slate-200">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect, useRef } = React;
+
+        const SorsolasApp = () => {
+
+// ✂️ --- 1. BLOKK HELYE: ADATBÁZISOK ÉS LOGÓK --- ✂️
+
+            // --- TÁVIRÁNYÍTÓ: ALAPÉRTELMEZETT SABLONOK ---
+            // Ha a jövőben megváltozik egy szabály, csak itt írd át a sablon nevét (pl. "_side" helyett "_stack")!
+            const alapBeallitasok = {
+                U10_6csapat_alap: "6cs_4m_2p_side",
+                U10_4_5csapat_alap: "4cs_4m_2p_side",
+                U8_8csapat_alap: "8cs_4m_4p_grid",
+                U8_6_7csapat_alap: "6cs_4m_3p_side",
+                U8_4_5csapat_alap: "4cs_4m_2p_side",
+                Csapat3_alap: "3cs_4m_1p"
+            };
+
+            // --- REJTETT TESTVÉREK ---
+            // Akik nem játszhatnak egymással (Logó kód vagy sima csapatnév)
+            const rejtettTestverek = [
+                ["UTE", "MEGYERI"], // UTE vs Megyeri Pingvinek
+                ["NYÍR", "SZAB"],   // Nyíregyházi SC vs Szabolcsi Sólymok
+                ["NYE", "SZP"],     // Nyugati Eszkimók vs Szombathelyi Pingvinek
+                ["VÁLTOZÓ 1", "VÁLTOZÓ 2"] // Későbbi használatra
+            ];
+
+            const csarnokAdatbazis = [
+                { kulcsszavak: ["ANGELS", "BALATONBOGLÁR", "JÉGKERT", "BUDAKALÁSZ", "CSABAI", "PAJTA", "DUNAKESZI", "MAKÓ", "DUOCOR", "ESZTERGOM", "KISPÁLYA", "HALÁSZTELEK", "KAZINCBARCIKA", "KECSKEMÉT", "KŐBÁNYA", "LŐRINCI", "MOSONMAGYARÓVÁR", "PÉCS", "SOPRON", "SZOLNOK", "TATA", "VÁROSGAZDA"], kapacitas: 1 },
+                { kulcsszavak: ["EGER", "SZARVAS", "TÁT", "VÁRPALOTA"], kapacitas: 2 }
+            ];
+
+            const csarnokNevekLista = [
+                "Ajka Jégcsarnok", "Algyő", "Angels Skills Hockey Center", "Bajai Jég és Szabadidő Csarnok", "Balatonboglár", 
+                "Budai Jégpálya (Jégkert)", "Budakalászi Jégpálya", "Csabai Jégpajta", "Debrecen, 2. pálya", "Debrecen, Centerpálya", 
+                "Dél-Budai Jég-és Szabadidő Centrum", "Dunakeszi Jégpálya", "Dunaújvárosi Jégcsarnok", "Duocor Jégcsarnok, Makó", 
+                "Eger", "Érdi Jégcsarnok", "Esztergom Jégcsarnok", "FTC Sátras Jégpálya", "Győri Egyetemi Jégsport Központ", 
+                "Győri Jégcsarnok - kispálya", "Halásztelek", "Hatvani Jégpálya", "Ifj. Ocskay Gábor Jégcsarnok, B pálya", 
+                "Ifj. Ocskay Gábor Jégcsarnok, C pálya", "Jászberényi Jégcsarnok", "Kaposvári Jégcsarnok", "Kazincbarcika", 
+                "Kecskeméti Jégpálya", "Kisstadion", "Kőbányai Jégpálya", "Lőrinci Jégcsarnok", "Mátyásföldi Jégcsarnok", 
+                "Millenáris", "Miskolc, 2. pálya", "Miskolci Jégcsarnok", "Mosonmagyaróvári Jégpálya", "Nyíregyháza", 
+                "Óbudai Jégcsarnok - Kispálya", "Óbudai Jégcsarnok - Nagypálya", "Pécs", "Pesterzsébet Jégcsarnok", 
+                "Rajz Attila Jégpálya", "Sátoraljaújhely Jégcsarnok", "Sopron", "Szarvasi Jégpálya", "Szeged", 
+                "Szekszárdi Jégcsarnok", "Szolnoki Jégpálya", "Tatabányai Műjégpálya", "Tatai Városkapu Sport- és Jégsátor", 
+                "Táti Jégpálya", "Tököli Jégdóm", "Trend Optika Jégcsarnok Szombathely", "Tüskesátor", "Újpesti Jégcsarnok", 
+                "UTE Szilágyi utcai jégcsarnok", "Városgazda Jégpálya", "Várpalota", "Vasas Jégcentrum, Centerpálya", 
+                "Vasas Jégcentrum, Edzőpálya", "Veszprém Jégcsarnok", "Zalaegerszegi Jégcsarnok"
+            ];
+
+            const csapatNevekLista = [
+                "Ajkai Óriások", "Algyői Olajosok", "ANGELS", "Bajai Harcsák", "Bajai Lurkók", "Bajai Törpeharcsák", 
+                "Balatoni Bocsok HC", "Budakalászi Vidra Se", "Budapesti Jégkorong Akadémia", "B-Villámok SE", 
+                "Csabai Farkasok", "CSAPATOM", "Debreceni Hoki Klub", "Dél- Budai Hockey Club", "DSC-SI", 
+                "Dunaújvárosi Acélbikák", "Dunaújvárosi Jégtörők", "DVTK Jegesmedvék", "Egerstars Egri Városi Sportiskola", 
+                "Egerszegi Titánok", "Egri Városi Sportiskola", "ESMTK", "FTC-Telekom", "Goodwill Pharma Szeged", 
+                "Gödöllői Muskétások", "Hatvani Gigászok", "HC Kiskőrös", "HK Spartak Subotica", "HKB", "HKB Hurricanes", 
+                "Ifj. Ocskay Gábor JA", "Jégkert SE", "Jégoroszlánok", "Kalózok Hoki Klub", "Kárpáti Farkasok", 
+                "KASI", "KASI USE", "Kazincbarcikai Ördögök", "KESI", "Kőszegi Farkasok", "KSI", "Lehel HC", "Lizards", 
+                "MAC Budapest A", "Magyar Jégkorong Szövetség", "Marosi Pengék", "Megyeri Pingvinek", "Mosonmagyaróvári Jégsárkányok", 
+                "NS Stars", "Nyíregyházi Sportcentrum", "Nyugati Eszkimók", "OHA", "Óvári Jégsárkányok", "Pécsi Sakálok", 
+                "Pécsi Sportiskola", "Polipkák", "Polipok mini", "Pörgős Pengék", "RTK Vasló", "SMAFC Jégtörők", 
+                "Sportországi Cápák", "Szabolcsi Sólymok", "Szarvasi Jégkorong SE", "Szekszárdi Jégmadarak", 
+                "Szent István Sportiskola", "Szigeti Bikák Pesterzsébet", "Szolnok Orcas Hockey SE", "Szombathelyi Pingvinek", 
+                "Tatai Hódok", "Táti Tigrisek", "UNI GYŐR ETO HC", "UTE", "Városgazda", "Vasas SC", "Veszprémi Jéglovagok", 
+                "VSD Párducok", "VUA Pandák", "White Sharks HC", "Zempléni Hiúzok"
+            ];
+
+            const logoAdatbazis = {
+                "AJKAI ÓRIÁSOK": "AJKA", "ÓRIÁSOK JÉGKORONG SE": "AJKA",
+                "ALGYŐI OLAJOSOK": "ALGY", "ANGELS": "ANG",
+                "BAJAI HARCSÁK": "BHA", "BAJAI LURKÓK": "BALU", "BAJAI TÖRPEHARCSÁK": "BHA",
+                "BALATONI BOCSOK HC": "BALB",
+                "BUDAKALÁSZI VIDRA SE": "VIDRA", "BUDAKALÁSZI VIDRÁK": "VIDRA",
+                "BUDAPESTI JÉGKORONG AKADÉMIA": "BJA", "B-VILLÁMOK SE": "BVILL",
+                "CSABAI FARKASOK": "CSAB", "CSAPATOM": "CSAP",
+                "DEBRECENI HOKI KLUB": "DHK", "DHK": "DHK",
+                "DÉL- BUDAI HOCKEY CLUB": "PHC", "DÉL-BUDAI HOCKEY CLUB": "PHC", 
+                "DSC-SI": "DSC", "DEBRECENI SPORTISKOLA": "DSC",
+                "DUNAÚJVÁROSI ACÉLBIKÁK": "DAB", "DAB": "DAB", "DUNAÚJVÁROSI JÉGTÖRŐK": "DAB",
+                "DVTK JEGESMEDVÉK": "DVTK", "EGERSTARS EGRI VÁROSI SPORTISKOLA": "EGERSTARS",
+                "EGERSZEGI TITÁNOK": "ETIT", "EGRI VÁROSI SPORTISKOLA": "EGER", "ESMTK": "ESMTK",
+                "FTC-TELEKOM": "FTC", "FTC": "FTC",
+                "GOODWILL PHARMA SZEGED": "SZEG", "GOODWILL PHARMA SZEGEDI VÍZMŰ": "SZEG",
+                "GÖDÖLLŐI MUSKÉTÁSOK": "GODM",
+                "HATVANI GIGÁSZOK": "FCH", "FC HATVAN GIGÁSZAI": "FCH",
+                "HC KISKŐRÖS": "KISK",
+                "HK SPARTAK SUBOTICA": "HKS", "HK SPARTAK": "HKS",
+                "HKB": "HKB", "HKB HURRICANES": "HKB", "KMH SE": "HKB",
+                "IFJ. OCSKAY GÁBOR JA": "IOGJA", "IOGJA": "IOGJA",
+                "JÉGKERT SE": "JSE", "JÉGOROSZLÁNOK": "JÉGO", "KALÓZOK HOKI KLUB": "KAL",
+                "KÁRPÁTI FARKASOK": "KF", "KASI": "KASI", "KASI USE": "KASI",
+                "KAZINCBARCIKAI ÖRDÖGÖK": "KAZ", "KESI": "KESI", "KŐSZEGI FARKASOK": "KOSZF",
+                "KSI": "KSI", "LEHEL HC": "LEH", "LIZARDS": "LIZ",
+                "MAC BUDAPEST A": "MAC", "MAGYAR JÉGKORONG SZÖVETSÉG": "MJSZ",
+                "MAROSI PENGÉK": "MPEN", "MEGYERI PINGVINEK": "MEGYERI",
+                "MOSONMAGYARÓVÁRI JÉGSÁRKÁNYOK": "MJ", "NS STARS": "NS",
+                "NYÍREGYHÁZI SPORTCENTRUM": "NYÍR", "NYÍREGYHÁZI SC": "NYÍR",
+                "NYUGATI ESZKIMÓK": "NYE", "OHA": "OHA", "ÓVÁRI JÉGSÁRKÁNYOK": "JEGS",
+                "PÉCSI SAKÁLOK": "PSAK", "PÉCSI SPORTISKOLA": "PECS",
+                "POLIPKÁK": "POL", "TATABÁNYAI POLIPOK": "POL", "POLIPOK MINI": "POL",
+                "PÖRGŐS PENGÉK": "PP", "RTK VASLÓ": "RTK",
+                "SMAFC JÉGTÖRŐK": "SMAFC", "SOPRONI JÉGTÖRŐK": "SMAFC",
+                "SPORTORSZÁGI CÁPÁK": "SPO", "SZABOLCSI SÓLYMOK": "SZAB",
+                "SZARVASI JÉGKORONG SE": "SZARV", "SZEKSZÁRDI JÉGMADARAK": "SZJ",
+                "SZENT ISTVÁN SPORTISKOLA": "SZIS", "SZENT ISTVÁN SPORTISKOLA HATVAN": "SZIS",
+                "SZIGETI BIKÁK PESTERZSÉBET": "SZB", "SZOLNOK ORCAS HOCKEY SE": "ORC",
+                "SZOMBATHELYI PINGVINEK": "SZP", "TATAI HÓDOK": "TATAI", "TÁTI TIGRISEK": "TÁTIT",
+                "UNI GYŐR ETO HC": "GYŐR", "UTE": "UTE", "VÁROSGAZDA": "VRSG",
+                "VASAS SC": "VAS", "VESZPRÉMI JÉGLOVAGOK": "VESZP",
+                "VSD PÁRDUCOK": "VSD", "VUA PANDÁK": "VUA",
+                "WHITE SHARKS HC": "WSHC", "ZEMPLÉNI HIÚZOK": "ZEMP"
+            };
+
+            const getLogoName = (teamName) => {
+                if (!teamName) return null;
+                let upper = teamName.trim().toUpperCase();
+                if (logoAdatbazis[upper]) return logoAdatbazis[upper];
+                let clean = upper.replace(/(\s*\d+|\s+[A-Z]\d*|\s+II|\s+III|\s+IV)$/i, '').trim();
+                if (logoAdatbazis[clean]) return logoAdatbazis[clean];
+                return null;
+            };
+
+            const areSameClub = (teamA, teamB) => {
+                if (!teamA || !teamB) return false;
+                let a = teamA.trim().toUpperCase();
+                let b = teamB.trim().toUpperCase();
+                if (a === 'SZABAD' || b === 'SZABAD' || a === '' || b === '') return false;
+                
+                // Tisztító képlet: levágjuk a sorszámokat, betűjeleket (A1, B, II stb.)
+                const clean = (s) => s.replace(/(\s*\d+|\s+[A-Z]\d*|\s+II|\s+III|\s+IV)$/i, '').trim();
+                let cleanA = clean(a);
+                let cleanB = clean(b);
+                
+                // 1. Sima név egyezés (pl. MAC A1 vs MAC B2 -> mindkettő "MAC")
+                if (cleanA === cleanB && cleanA.length > 2) return true;
+
+                // 2. Rejtett testvérek vagy Logó kódok alapján
+                const logoA = getLogoName(a) || cleanA;
+                const logoB = getLogoName(b) || cleanB;
+                
+                for (let pair of rejtettTestverek) {
+                    // Biztosítjuk, hogy a tömb elemei nagybetűsek legyenek az összehasonlításhoz
+                    const upperPair = pair.map(p => p.toUpperCase());
+                    if ((upperPair.includes(logoA) && upperPair.includes(logoB)) || 
+                        (upperPair.includes(cleanA) && upperPair.includes(cleanB)) ||
+                        (upperPair.includes(a) && upperPair.includes(b))) {
+                        return true;
+                    }
+                }
+                
+                return false;
+            };
+
+            const formatDatum = (dateStr) => {
+                if (!dateStr) return '';
+                const dateObj = new Date(dateStr);
+                if (isNaN(dateObj)) return dateStr;
+                const napok = ['vasárnap', 'hétfő', 'kedd', 'szerda', 'csütörtök', 'péntek', 'szombat'];
+                return `${dateObj.getFullYear()}.${String(dateObj.getMonth() + 1).padStart(2, '0')}.${String(dateObj.getDate()).padStart(2, '0')}. ${napok[dateObj.getDay()]}`;
+            };
+
+// ✂️ ------------------------------------------- ✂️
+
+            // ✂️ --- 2. BLOKK HELYE: SORSOLÁSI LOGIKA ÉS MOTOR --- ✂️
+
+            // 1. Állapotok (Memória) inicializálása
+            const [tornaAdatok, setTornaAdatok] = useState({
+                korosztaly: 'U10', csoport: 'A',
+                szint: '4cs_4m_2p_side', sorszam: '',
+                datum: '', kezdes: '',
+                rendezo: '', helyszin: '',
+                info: '', infoSzin: '#dc2626', palyaTipus: '2_palya' 
+            });
+
+            const [csapatok, setCsapatok] = useState(['', '', '', '', '', '', '', '']);
+            const [csapatSzinek, setCsapatSzinek] = useState(Array(8).fill('#1e293b')); // ÚJ: Minden csapat alapból sötétkék/fekete
+            const [pastedData, setPastedData] = useState(''); 
+            const [utkozesEngedelyezve, setUtkozesEngedelyezve] = useState(false); 
+            const fileInputRef = useRef(null);
+            
+            // --- ÚJ: CSAPATCSERE ÉS KONKRÉT MECCS FELÜLÍRÁS MEMÓRIÁJA ---
+            const [kivalasztottCsapat, setKivalasztottCsapat] = useState(null);
+            const [manualOverrides, setManualOverrides] = useState({});
+
+            // Automatikus nullázás sablonváltáskor (biztonsági fék)
+            useEffect(() => {
+                setUtkozesEngedelyezve(false);
+                setKivalasztottCsapat(null);
+                setManualOverrides({}); // Ha sablont váltasz, a kézi firkálások törlődnek
+            }, [tornaAdatok.szint]);
+// --- KÖZPONTI INTELLIGENCIA: AUTOMATIKUS SABLONVÁLASZTÓ MOTOR ---
+            const autoSelectTemplate = (currentAdatok, currentCsapatok, forceText = null) => {
+                const talaltCsapatokSzama = currentCsapatok.filter(c => c && c.trim() !== '' && c !== 'SZABAD').length;
+                const searchStr = (forceText || currentAdatok.helyszin + " " + currentAdatok.info).toUpperCase();
+                const u8 = currentAdatok.korosztaly === 'U8';
+                const isC = currentAdatok.csoport === 'C';
+
+                let overridePalya = 0;
+                if (searchStr.includes("4 PÁLY") || searchStr.includes("4P")) overridePalya = 4;
+                else if (searchStr.includes("3 PÁLY") || searchStr.includes("3P")) overridePalya = 3;
+                else if (searchStr.includes("2 PÁLY") || searchStr.includes("2P")) overridePalya = 2;
+                else if (searchStr.includes("KISPÁLYA") || searchStr.includes("1 PÁLY") || searchStr.includes("1P")) overridePalya = 1;
+
+                let maxPalya = 4;
+                if (overridePalya === 0) {
+                    for (let entry of csarnokAdatbazis) {
+                        if (entry.kulcsszavak.some(k => searchStr.includes(k.toUpperCase()))) {
+                            maxPalya = entry.kapacitas;
+                            break;
+                        }
+                    }
+                }
+
+                let celtPalya = 0; let elrendezes = '';
+                if (u8) {
+                    if (maxPalya === 1 || overridePalya === 1) { celtPalya = 1; } 
+                    else if (maxPalya === 2 || overridePalya === 2) { celtPalya = 2; elrendezes = '_side'; } 
+                    else {
+                        celtPalya = overridePalya > 0 ? overridePalya : (talaltCsapatokSzama >= 8 ? 4 : (talaltCsapatokSzama >= 6 ? 3 : 2));
+                        if (celtPalya === 2) elrendezes = '_stack';
+                        if (celtPalya === 3) elrendezes = '_mixed';
+                        if (celtPalya === 4) elrendezes = '_grid';
+                    }
+                } else {
+                    if (maxPalya === 1 || overridePalya === 1) { celtPalya = 1; } 
+                    else { celtPalya = overridePalya > 0 ? overridePalya : 2; elrendezes = '_side'; }
+                }
+
+                if (talaltCsapatokSzama <= 3) { celtPalya = 1; elrendezes = ''; }
+                let meccsSzam = isC ? '3m' : '4m';
+                let baseSzint = `${talaltCsapatokSzama}cs_${meccsSzam}_${celtPalya}p${elrendezes}`;
+
+                if (!sablonAdatbazis[baseSzint]) {
+                    if (celtPalya === 1) baseSzint = isC ? '4cs_3m_1p' : '4cs_4m_1p';
+                    else baseSzint = '4cs_4m_2p_side';
+                }
+                return baseSzint;
+            };
+
+            // --- ÉLŐ FIGYELŐ: HA VÁLTOZIK A HELYSZÍN VAGY AZ INFO ---
+            useEffect(() => {
+                const ujSzint = autoSelectTemplate(tornaAdatok, csapatok);
+                if (ujSzint !== tornaAdatok.szint) {
+                    setTornaAdatok(prev => ({ ...prev, szint: ujSzint }));
+                }
+            }, [tornaAdatok.helyszin, tornaAdatok.info, tornaAdatok.korosztaly, tornaAdatok.csoport]);
+            // --- ADATOK MENTÉSE ÉS BETÖLTÉSE ---
+            const handleSaveJSON = () => {
+                const dataToSave = { tornaAdatok, csapatok, csapatSzinek, manualOverrides }; // + csapatSzinek
+                const jsonStr = JSON.stringify(dataToSave, null, 2);
+                const blob = new Blob([jsonStr], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                const safeName = `${tornaAdatok.sorszam}_${tornaAdatok.rendezo}`.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_');
+                a.href = url; a.download = `${safeName || 'sorsolas'}.json`; a.click();
+                URL.revokeObjectURL(url);
+            };
+
+            const handleLoadJSON = (e) => {
+                const file = e.target.files[0]; if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    try {
+                        const data = JSON.parse(ev.target.result);
+                        if (data.tornaAdatok) setTornaAdatok(data.tornaAdatok);
+                        if (data.csapatok) setCsapatok(data.csapatok);
+                        if (data.csapatSzinek) setCsapatSzinek(data.csapatSzinek); // + szín betöltés
+                        if (data.manualOverrides) setManualOverrides(data.manualOverrides);
+                    } catch (err) { alert("Hiba a fájl betöltésekor!"); }
+                };
+                reader.readAsText(file); e.target.value = null;
+            };
+
+            // --- OKOS PDF NYOMTATÁS ---
+            const handleSmartPrint = () => {
+                const originalTitle = document.title;
+                const safeName = `${tornaAdatok.sorszam}_${tornaAdatok.rendezo}`.replace(/[^a-z0-9 \-]/gi, '').trim();
+                if (safeName) document.title = safeName;
+                window.print();
+                setTimeout(() => { document.title = originalTitle; }, 1000);
+            };
+
+            // --- CSAPATCSERE FUNKCIÓK ---
+            
+            // 1. Bal oldali lista cseréje (Minden meccsre hat)
+            const handleTeamClick = (index) => {
+                if (kivalasztottCsapat === null) {
+                    setKivalasztottCsapat(index);
+                } else {
+                    if (kivalasztottCsapat !== index) {
+                        const ujCsapatok = [...csapatok];
+                        const temp = ujCsapatok[kivalasztottCsapat];
+                        ujCsapatok[kivalasztottCsapat] = ujCsapatok[index];
+                        ujCsapatok[index] = temp;
+                        setCsapatok(ujCsapatok);
+                        
+                        const ujSzinek = [...csapatSzinek];
+                        const tempSzin = ujSzinek[kivalasztottCsapat];
+                        ujSzinek[kivalasztottCsapat] = ujSzinek[index];
+                        ujSzinek[index] = tempSzin;
+                        setCsapatSzinek(ujSzinek);
+
+                        setManualOverrides({}); // Globális csere esetén a kézi felülírásokat nullázzuk
+                    }
+                    setKivalasztottCsapat(null);
+                }
+            };
+
+            // 2. Egyedi cella felülírása a táblázatban (Csak arra az egy helyre hat)
+            const handleTableTeamClick = (rink, rowIndex, side) => {
+                if (kivalasztottCsapat !== null) {
+                    const key = `${rink}-${rowIndex}-${side}`; // pl: "A-0-h"
+                    setManualOverrides(prev => ({
+                        ...prev,
+                        [key]: kivalasztottCsapat
+                    }));
+                    setKivalasztottCsapat(null); // Csere után elengedjük a csapatot
+                }
+            };
+
+            // 2. A Varázsdoboz (Beolvasás és Intelligens Sablonválasztó)
+            const handleExcelPaste = (e) => {
+                const text = e.target.value;
+                if (!text) return;
+
+                let ujAdatok = { ...tornaAdatok, info: '', infoSzin: '#dc2626' }; // Tiszta lappal és PIROS színnel indul az infó
+                let ujCsapatok = ['', '', '', '', '', '', '', ''];
+                let talaltCsapatokSzama = 0;
+
+                setUtkozesEngedelyezve(false); 
+                setKivalasztottCsapat(null);
+                setManualOverrides({});
+
+                const rawLines = text.split('\n').map(l => l.trim()).filter(l => l !== '');
+                if (rawLines.length === 0) return;
+                
+                const firstLineTabs = rawLines[0].split('\t').map(c => c.trim());
+                
+                // --- 1. ÁG: EXCEL FORMÁTUM (Van benne sok tabulátor) ---
+                if (firstLineTabs.length >= 4) {
+                    if (firstLineTabs[0]) {
+                        const uMatch = firstLineTabs[0].match(/(U8|U10)/i);
+                        if (uMatch) ujAdatok.korosztaly = uMatch[1].toUpperCase();
+                        const csMatch = firstLineTabs[0].match(/\b([A-C])\b/i);
+                        if (csMatch) ujAdatok.csoport = csMatch[1].toUpperCase();
+                    }
+                    if (firstLineTabs[1]) ujAdatok.sorszam = firstLineTabs[1];
+                    if (firstLineTabs[2]) {
+                        const dMatch = firstLineTabs[2].match(/(\d{4})\.(\d{2})\.(\d{2})/);
+                        if (dMatch) ujAdatok.datum = `${dMatch[1]}-${dMatch[2]}-${dMatch[3]}`;
+                    }
+                    if (firstLineTabs[3]) {
+                        const idoMatch = firstLineTabs[3].match(/\b(\d{1,2}):(\d{2})\b/);
+                        if (idoMatch) ujAdatok.kezdes = idoMatch[1] === '0' && idoMatch[2] === '00' ? '00:00' : `${idoMatch[1].padStart(2, '0')}:${idoMatch[2]}`;
+                    }
+                    if (firstLineTabs.length >= 5 && firstLineTabs[4]) ujAdatok.rendezo = firstLineTabs[4];
+                    if (firstLineTabs.length >= 6 && firstLineTabs[5]) ujAdatok.helyszin = firstLineTabs[5];
+                    
+                    for (let i = 1; i < rawLines.length; i++) {
+                        const cells = rawLines[i].split('\t').map(c => c.trim()).filter(c => c !== '');
+                        
+                        cells.forEach(cell => {
+                            const upper = cell.toUpperCase();
+                            // Ha a megjegyzés tartalmazza a "PÁLYA" szót, azt direkt kihagyjuk a nyomtatási infóból!
+                            if ((upper === 'KEZDŐ' || upper === 'KISPÁLYA' || upper === 'HALADÓ') && !upper.includes('PÁLYA')) {
+                                if (!ujAdatok.info.includes(cell)) {
+                                    ujAdatok.info = ujAdatok.info ? `${ujAdatok.info} ${cell}` : cell;
+                                }
+                            }
+                        });
+
+                        const teamCellIdx = cells.findIndex(c => c.match(/^\d{1,2}[\.\)](?!\d)/)); // Dátum védelem!
+                        if (teamCellIdx !== -1 && talaltCsapatokSzama < 8) {
+                            let tName = cells[teamCellIdx].replace(/^\d{1,2}[\.\)]\s*/, '').trim();
+                            if (!tName && teamCellIdx + 1 < cells.length) tName = cells[teamCellIdx + 1];
+                            if (tName && !tName.toUpperCase().includes('PÁLYA') && tName.toUpperCase() !== 'KEZDŐ') {
+                                ujCsapatok[talaltCsapatokSzama] = tName;
+                                talaltCsapatokSzama++;
+                            }
+                        }
+                    }
+                } 
+                // --- 2. ÁG: EMAIL FORMÁTUM (Nincsenek oszlopok, csak sorok) ---
+                else {
+                    let prevLine = '';
+                    for (let i = 0; i < rawLines.length; i++) {
+                        const line = rawLines[i];
+                        const upperLine = line.toUpperCase();
+                        
+                        // Extrák kigyűjtése (A pályák számát direkt kihagyjuk az extra infóból!)
+                        if ((upperLine.includes('KEZDŐ') || upperLine.includes('KISPÁLYA') || upperLine.includes('HALADÓ')) && !upperLine.includes('PÁLYA')) {
+                            if (!line.match(/^\d{1,2}[\.\)](?!\d)/) && !ujAdatok.info.includes(line)) {
+                                ujAdatok.info = ujAdatok.info ? `${ujAdatok.info} ${line}` : line;
+                            }
+                        }
+
+                        if (line.match(/\b(U8|U10)\b/i)) {
+                            ujAdatok.korosztaly = line.match(/\b(U8|U10)\b/i)[1].toUpperCase();
+                            const csMatch = line.match(/\b([A-C])\b/i);
+                            if (csMatch) ujAdatok.csoport = csMatch[1].toUpperCase();
+                        }
+                        if (line.match(/\b(MINI|SZMINI)\s*\d+\b/i)) ujAdatok.sorszam = line.match(/\b(MINI|SZMINI)\s*\d+\b/i)[0].toUpperCase();
+                        const dMatch = line.match(/(\d{4})\.(\d{2})\.(\d{2})/);
+                        if (dMatch) ujAdatok.datum = `${dMatch[1]}-${dMatch[2]}-${dMatch[3]}`;
+                        const idoMatch = line.match(/^(\d{1,2}):(\d{2})$/);
+                        if (idoMatch) ujAdatok.kezdes = idoMatch[1] === '0' && idoMatch[2] === '00' ? '00:00' : `${idoMatch[1].padStart(2, '0')}:${idoMatch[2]}`;
+                        
+                        const isVenueKeyword = line.match(/(Jégcsarnok|Pálya|Centrum|Jégpálya|Sátor|Aréna|Center|Központ|Jégdóm|Kisstadion|Millenáris|Angels|Algyő|Balatonboglár|Kazincbarcika|Nyíregyháza|Pécs|Sopron|Szeged|Eger|Tát|Várpalota|Makó)/i);
+                        const isNotHeader = !line.match(/\b(MINI|SZMINI|U10|U8)\b/i) && !line.match(/Résztvevők/i);
+
+                        if (isVenueKeyword && isNotHeader && !line.match(/^(\d{1,2}):(\d{2})$/) && !line.match(/\d{4}\.\d{2}\.\d{2}/)) {
+                            ujAdatok.helyszin = line.split('\t')[0].trim();
+                            if (prevLine && !prevLine.match(/^(\d{1,2}):(\d{2})$/) && !prevLine.match(/\d{4}\.\d{2}\.\d{2}/)) {
+                                ujAdatok.rendezo = prevLine.split('\t')[0].trim();
+                            }
+                        }
+
+                        // Csapatkereső (Dátum-védelemmel)
+                        if (line.match(/^\d{1,2}[\.\)]?(?!\d)$/)) {
+                            // Ha a sor csak "1.", a név a következő sorban van
+                            if (i + 1 < rawLines.length && talaltCsapatokSzama < 8) { 
+                                const tName = rawLines[i + 1].split('\t')[0].trim();
+                                if(tName && !tName.toUpperCase().includes('PÁLYA') && tName.toUpperCase() !== 'KEZDŐ') {
+                                    ujCsapatok[talaltCsapatokSzama] = tName; 
+                                    talaltCsapatokSzama++; 
+                                    i++; // Átugorjuk a következő sort
+                                }
+                            }
+                        } else {
+                            // Ha egy sorban van: "1. Szigeti Bikák"
+                            const teamMatch = line.match(/^\d{1,2}[\.\)]\s*(.+)$/);
+                            if (teamMatch && !teamMatch[1].toLowerCase().includes('résztvevők') && talaltCsapatokSzama < 8) { 
+                                const tName = teamMatch[1].split('\t')[0].trim();
+                                if(tName && !tName.toUpperCase().includes('PÁLYA') && tName.toUpperCase() !== 'KEZDŐ') {
+                                    ujCsapatok[talaltCsapatokSzama] = tName; 
+                                    talaltCsapatokSzama++; 
+                                }
+                            }
+                        }
+                        prevLine = line;
+                    }
+                }
+
+                if (talaltCsapatokSzama > 0 && ujCsapatok[0].toUpperCase() !== 'SZABAD') {
+                    if (!ujAdatok.rendezo || ujAdatok.rendezo === tornaAdatok.rendezo) ujAdatok.rendezo = ujCsapatok[0];
+                }
+
+                if (talaltCsapatokSzama > 0) {
+                    ujAdatok.szint = autoSelectTemplate(ujAdatok, ujCsapatok, text);
+                }
+
+                setTornaAdatok(ujAdatok);
+                setCsapatok(ujCsapatok);
+                setCsapatSzinek(Array(8).fill('#1e293b')); // Színek lenullázása az új beolvasáskor
+                setTimeout(() => setPastedData(''), 100);
+            };
+
+            // 3. A Sorsolási Sablonok Tárháza
+            const sablonData = {
+                '3cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:1}] }, { meccsek: [{h:2,v:0}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:2}] }, { meccsek: [{h:1,v:2}] }, { meccsek: [{h:1,v:0}] }, { kor: 'ZARAS' }],
+                '4cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:3}] }, { meccsek: [{h:0,v:2}] }, { meccsek: [{h:1,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:2,v:1}] }, { meccsek: [{h:3,v:0}] }, { meccsek: [{h:1,v:0}] }, { meccsek: [{h:3,v:2}] }, { kor: 'ZARAS' }],
+                '4cs_4m_2p': [{ meccsek: [{h:0,v:1}, {h:2,v:3}] }, { meccsek: [{h:0,v:2}, {h:1,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:2,v:1}, {h:3,v:0}] }, { meccsek: [{h:1,v:0}, {h:3,v:2}] }, { kor: 'ZARAS' }],
+                '5cs_4m_2p': [{ meccsek: [{h:0,v:1}, {h:3,v:2}] }, { meccsek: [{h:0,v:3}, {h:1,v:4}] }, { meccsek: [{h:2,v:4}, null] }, { kor: 'ROLBA' }, { meccsek: [{h:2,v:0}, {h:3,v:1}] }, { meccsek: [{h:2,v:1}, {h:4,v:3}] }, { meccsek: [{h:4,v:0}, null] }, { kor: 'ZARAS' }],
+                '6cs_4m_2p': [{ meccsek: [{h:0,v:2}, {h:1,v:4}] }, { meccsek: [{h:3,v:5}, {h:0,v:4}] }, { meccsek: [{h:2,v:5}, {h:1,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:3}, {h:2,v:4}] }, { meccsek: [{h:0,v:5}, {h:2,v:1}] }, { meccsek: [{h:1,v:5}, {h:3,v:4}] }, { kor: 'ZARAS' }],
+                '6cs_4m_3p': [{ meccsek: [{h:0,v:5}, {h:1,v:2}, {h:3,v:4}] }, { meccsek: [{h:0,v:4}, {h:1,v:3}, {h:2,v:5}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:2}, {h:1,v:4}, {h:3,v:5}] }, { meccsek: [{h:0,v:3}, {h:1,v:5}, {h:2,v:4}] }, { kor: 'ZARAS' }],
+                '7cs_4m_3p': [{ meccsek: [{h:0,v:1}, {h:2,v:3}, {h:4,v:6}] }, { meccsek: [{h:4,v:6}, {h:2,v:1}, {h:5,v:3}] }, { meccsek: [{h:0,v:5}, null, null] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:4}, {h:5,v:6}, {h:1,v:3}] }, { meccsek: [{h:1,v:4}, {h:0,v:5}, {h:2,v:6}] }, { meccsek: [{h:2,v:3}, null, null] }, { kor: 'ZARAS' }],
+                '8cs_4m_4p': [{ meccsek: [{h:0,v:1}, {h:2,v:3}, {h:5,v:4}, {h:6,v:7}] }, { meccsek: [{h:2,v:0}, {h:1,v:3}, {h:4,v:6}, {h:5,v:7}] }, { kor: 'ROLBA' }, { meccsek: [{h:3,v:0}, {h:2,v:1}, {h:7,v:4}, {h:5,v:6}] }, { meccsek: [{h:4,v:0}, {h:5,v:1}, {h:7,v:2}, {h:3,v:6}] }, { kor: 'ZARAS' }]
+            };
+
+            const cSablonData = {
+                '4cs_3m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:3}] }, { meccsek: [{h:2,v:0}] }, { kor: 'ROLBA' }, { meccsek: [{h:1,v:3}] }, { meccsek: [{h:1,v:2}] }, { meccsek: [{h:0,v:3}] }, { kor: 'ZARAS' }],
+                '4cs_3m_2p': [{ meccsek: [{h:0,v:1}, {h:2,v:3}] }, { meccsek: [{h:0,v:2}, {h:1,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:2,v:1}, {h:3,v:0}] }, { kor: 'ZARAS' }],
+                '5cs_3m_2p': [{ meccsek: [{h:0,v:1}, {h:4,v:2}] }, { meccsek: [{h:0,v:2}, {h:1,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:3}, {h:1,v:4}] }, { meccsek: [{h:0,v:4}, {h:2,v:3}] }, { kor: 'ZARAS' }],
+                '6cs_3m_2p': [{ meccsek: [{h:0,v:1}, {h:2,v:3}] }, { meccsek: [{h:4,v:5}, {h:0,v:3}] }, { meccsek: [{h:1,v:4}, {h:2,v:5}] }, { kor: 'ROLBA' }, { meccsek: [{h:2,v:4}, {h:3,v:1}] }, { meccsek: [{h:5,v:0}, null] }, { kor: 'ZARAS' }],
+                '6cs_3m_3p': [{ meccsek: [{h:0,v:1}, {h:2,v:3}, {h:4,v:5}] }, { meccsek: [{h:0,v:3}, {h:1,v:4}, {h:2,v:5}] }, { kor: 'ROLBA' }, { meccsek: [{h:4,v:0}, {h:2,v:1}, {h:3,v:5}] }, { kor: 'ZARAS' }]
+            };
+
+            const sablonAdatbazis = {};
+            Object.keys(sablonData).forEach(key => {
+                if (key.includes('_2p')) { sablonAdatbazis[`${key}_side`] = sablonData[key]; sablonAdatbazis[`${key}_stack`] = sablonData[key]; }
+                else if (key.includes('_3p')) { sablonAdatbazis[`${key}_side`] = sablonData[key]; sablonAdatbazis[`${key}_mixed`] = sablonData[key]; }
+                else if (key.includes('_4p')) { sablonAdatbazis[`${key}_grid`] = sablonData[key]; }
+                else { sablonAdatbazis[key] = sablonData[key]; }
+            });
+
+            Object.keys(cSablonData).forEach(key => {
+                if (key.includes('_2p')) { sablonAdatbazis[`${key}_side`] = cSablonData[key]; sablonAdatbazis[`${key}_stack`] = cSablonData[key]; }
+                else if (key.includes('_3p')) { sablonAdatbazis[`${key}_side`] = cSablonData[key]; sablonAdatbazis[`${key}_mixed`] = cSablonData[key]; }
+                else { sablonAdatbazis[key] = cSablonData[key]; }
+            });
+
+            // 4. Matek és Elrendezés (CSS Grid generálása)
+            const meccsPerc = tornaAdatok.korosztaly === 'U8' ? 20 : 27;
+            const rolbaPerc = 15;
+            const palyaBetuk = ["A", "B", "C", "D", "E", "F"];
+            const msz = useMemo(() => sablonAdatbazis[tornaAdatok.szint] || sablonAdatbazis['4cs_4m_2p_side'], [tornaAdatok.szint]);
+            
+            const isCsoportWarning = useMemo(() => {
+                return tornaAdatok.csoport && ['A', 'B'].includes(tornaAdatok.csoport.toUpperCase()) && tornaAdatok.szint.includes('3m');
+            }, [tornaAdatok.csoport, tornaAdatok.szint]);
+
+            const palyakSzama = useMemo(() => {
+                if (!msz || !msz[0].meccsek) return 1;
+                let max = 1;
+                msz.forEach(s => { if (s.meccsek && s.meccsek.length > max) max = s.meccsek.length; });
+                return max;
+            }, [msz]);
+
+            useEffect(() => { setTornaAdatok(prev => ({...prev, palyaTipus: `${palyakSzama}_palya`})); }, [palyakSzama]);
+
+            const getIdopont = (korIndex) => {
+                let korokSzama = 0; let rolbakSzama = 0;
+                for(let i=0; i<korIndex; i++) { if(msz[i].kor === 'ROLBA') rolbakSzama++; else if (msz[i].kor !== 'ZARAS') korokSzama++; }
+                let [ora, perc] = (tornaAdatok.kezdes || '00:00').split(':').map(Number);
+                let ossz = ora * 60 + perc + (korokSzama * meccsPerc) + (rolbakSzama * rolbaPerc);
+                return `${Math.floor(ossz / 60)}:${(ossz % 60).toString().padStart(2, '0')}`;
+            };
+
+            const rinkSchedules = useMemo(() => {
+                const s = {};
+                Array.from({ length: palyakSzama }).forEach((_, i) => { s[palyaBetuk[i]] = []; });
+                if (msz) {
+                    let team0Count = 0;
+                    const is3mTemplate = tornaAdatok.szint.includes('3m');
+                    msz.forEach((sor, idx) => {
+                        const ido = getIdopont(idx);
+                        if (sor.kor === 'ROLBA') { Object.keys(s).forEach(k => s[k].push({ tipus: 'rolba', ido })); }
+                        else if (sor.kor === 'ZARAS') { Object.keys(s).forEach(k => s[k].push({ tipus: 'zaras', ido })); }
+                        else {
+                            Array.from({ length: palyakSzama }).forEach((_, pIdx) => {
+                                const rinkLetter = palyaBetuk[pIdx];
+                                const meccs = sor.meccsek[pIdx];
+                                if (meccs) {
+                                    let isHRed = false; let isVRed = false;
+                                    if (is3mTemplate) {
+                                        if (meccs.h === 0) { team0Count++; if (team0Count === 4) isHRed = true; }
+                                        if (meccs.v === 0) { team0Count++; if (team0Count === 4) isVRed = true; }
+                                    }
+                                    s[rinkLetter].push({ tipus: 'meccs', ido, h: meccs.h, v: meccs.v, isHRed, isVRed });
+                                } else { s[rinkLetter].push({ tipus: 'szabad', ido }); }
+                            });
+                        }
+                    });
+                }
+                return s;
+            }, [msz, palyakSzama, tornaAdatok.kezdes, meccsPerc, tornaAdatok.szint]);
+
+            const mainGridConfig = useMemo(() => {
+                const levels = tornaAdatok.szint.split('_');
+                const pNum = parseInt(levels[levels.length - 2]); 
+                const layout = levels[levels.length - 1]; 
+
+                if (tornaAdatok.szint.includes('1p') || pNum === 1) return "grid-cols-1"; 
+                if (pNum === 2) {
+                    if (layout === 'stack') return "grid-cols-1 grid-rows-2 gap-y-12"; 
+                    return "grid-cols-2 gap-x-6"; 
+                }
+                if (pNum === 3) {
+                    if (layout === 'mixed') return "grid-cols-2 grid-rows-2 gap-x-6 gap-y-12"; 
+                    return "grid-cols-3 gap-x-4"; 
+                }
+                if (pNum === 4) return "grid-cols-2 grid-rows-2 gap-x-6 gap-y-12"; 
+                return "grid-cols-1"; 
+            }, [tornaAdatok.szint]);
+
+            const getRinkPlacement = (rinkLetter) => {
+                const levels = tornaAdatok.szint.split('_');
+                const layout = levels[levels.length - 1];
+
+                if (layout === 'mixed') { 
+                    if (rinkLetter === 'A') return "row-start-1 col-start-1";
+                    if (rinkLetter === 'B') return "row-start-2 col-start-1";
+                    if (rinkLetter === 'C') return "row-start-1 row-end-3 col-start-2";
+                }
+                if (layout === 'grid') { 
+                    if (rinkLetter === 'A') return "row-start-1 col-start-1";
+                    if (rinkLetter === 'C') return "row-start-1 col-start-2";
+                    if (rinkLetter === 'B') return "row-start-2 col-start-1";
+                    if (rinkLetter === 'D') return "row-start-2 col-start-2";
+                }
+                return "col-span-1"; 
+            };
+
+            const isInvalidTeam = (nev) => !nev || nev.toUpperCase() === 'SZABAD';
+            const logofile = getLogoName(tornaAdatok.rendezo);
+
+// ✂️ ------------------------------------------------- ✂️
+
+            return (
+                <div className="flex flex-col md:flex-row h-screen font-sans overflow-hidden bg-slate-200">
+                    
+                    {/* ✂️ --- 3. BLOKK HELYE: BAL OLDAL (VEZÉRLŐPULT) --- ✂️ */}
+                    <div className="w-full md:w-96 bg-slate-900 text-white p-5 overflow-y-auto shadow-2xl z-20 print-hide h-full shrink-0 flex flex-col gap-4 custom-scrollbar">
+                        <h2 className="text-xl font-black text-blue-400 border-b border-slate-700 pb-3 flex justify-between items-center">
+                            SORSOLÁS v4.0
+                            <label className={`flex items-center gap-1.5 text-[10px] uppercase font-bold cursor-pointer px-2 py-1.5 rounded transition ${utkozesEngedelyezve ? 'bg-green-900/40 text-green-400' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`} title="Pipáld be, ha JÓVÁHAGYOD a testvérharcot (eltűnik a sárga figyelmeztetés)">
+                                <input type="checkbox" checked={utkozesEngedelyezve} onChange={() => setUtkozesEngedelyezve(!utkozesEngedelyezve)} className="accent-green-500 w-3 h-3"/>
+                                Testvérharc OK
+                            </label>
+                        </h2>
+                        
+                        <div className="bg-yellow-900/30 border border-yellow-600/50 rounded-lg p-3">
+                            <label className="block text-yellow-500 uppercase font-black mb-2 tracking-widest text-[10px]">🪄 Varázsdoboz (Beolvasás)</label>
+                            <textarea value={pastedData} onChange={handleExcelPaste} placeholder="Másold be ide a tornát..." className="w-full bg-slate-800/80 p-2 rounded border border-slate-600 text-slate-200 text-sm h-20 focus:outline-none focus:border-yellow-500 placeholder-slate-500"/>
+                        </div>
+
+                        {(!tornaAdatok.kezdes || csapatok.slice(0, parseInt(tornaAdatok.szint.match(/^\d+/)?.[0] || 4)).some(c => !c)) && (
+                            <div className="bg-red-900/50 text-red-200 p-2 rounded text-xs border border-red-800 font-bold text-center animate-pulse">⚠️ Hiányzó adatok (piros)!</div>
+                        )}
+
+                        <div className="space-y-4 text-sm">
+                            <section className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                                <label className="block text-slate-400 uppercase font-bold mb-3 text-xs">Alapbeállítások</label>
+                                <div className="grid grid-cols-3 gap-2 mb-3">
+                                    <select value={tornaAdatok.korosztaly} onChange={e => setTornaAdatok({...tornaAdatok, korosztaly: e.target.value})} className="bg-slate-700 p-2 rounded font-bold text-sm outline-none"><option value="U8">U8</option><option value="U10">U10</option></select>
+                                    <select value={tornaAdatok.csoport} onChange={e => setTornaAdatok({...tornaAdatok, csoport: e.target.value})} className={`p-2 rounded font-bold text-center text-sm outline-none ${isCsoportWarning ? 'bg-red-900 focus:ring-red-500' : 'bg-slate-700'}`}><option value="">- Nincs -</option><option value="A">A csop.</option><option value="B">B csop.</option><option value="C">C csop.</option></select>
+                                    <input type="time" value={tornaAdatok.kezdes} onChange={e => setTornaAdatok({...tornaAdatok, kezdes: e.target.value})} className={`p-2 rounded border font-bold text-sm ${!tornaAdatok.kezdes ? 'bg-red-900/80 border-red-500' : 'bg-slate-700 border-slate-600'}`}/>
+                                </div>
+                                
+                                <select value={tornaAdatok.szint} onChange={e => setTornaAdatok({...tornaAdatok, szint: e.target.value})} className={`w-full p-2 rounded text-sm font-bold border outline-none ${isCsoportWarning ? 'bg-red-900 border-red-500' : 'bg-slate-700 border-slate-600'}`}>
+                                    <optgroup label="3 Csapatos Tornák">
+                                        <option value="3cs_4m_1p">3 Csapat / 4 Meccs / 1 Pálya</option>
+                                    </optgroup>
+                                    <optgroup label="4 Csapatos Tornák (A/B szint)">
+                                        <option value="4cs_4m_1p">4 Csapat / 4 Meccs / 1 Pálya</option>
+                                        <option value="4cs_4m_2p_side">4 Csapat / 4 Meccs / 2 Pálya (Egymás mellett)</option>
+                                        <option value="4cs_4m_2p_stack">4 Csapat / 4 Meccs / 2 Pálya (Egymás alatt)</option>
+                                    </optgroup>
+                                    <optgroup label="C szintű tornák (3 meccs)">
+                                        <option value="4cs_3m_1p">4 Csapat / 3 Meccs / 1 Pálya</option>
+                                        <option value="4cs_3m_2p_side">4 Csapat / 3 Meccs / 2 Pálya (Egymás mellett)</option>
+                                        <option value="4cs_3m_2p_stack">4 Csapat / 3 Meccs / 2 Pálya (Egymás alatt)</option>
+                                        <option value="5cs_3m_2p_side">5 Csapat / 3 Meccs / 2 Pálya (Egymás mellett)</option>
+                                        <option value="5cs_3m_2p_stack">5 Csapat / 3 Meccs / 2 Pálya (Egymás alatt)</option>
+                                        <option value="6cs_3m_2p_side">6 Csapat / 3 Meccs / 2 Pálya (Egymás mellett)</option>
+                                        <option value="6cs_3m_2p_stack">6 Csapat / 3 Meccs / 2 Pálya (Egymás alatt)</option>
+                                        <option value="6cs_3m_3p_side">6 Csapat / 3 Meccs / 3 Pálya (Egymás mellett)</option>
+                                        <option value="6cs_3m_3p_mixed">6 Csapat / 3 Meccs / 3 Pálya (Rács)</option>
+                                    </optgroup>
+                                    <optgroup label="Nagyobb Tornák (4 meccs)">
+                                        <option value="5cs_4m_2p_side">5 Csapat / 4 Meccs / 2 Pálya (Egymás mellett)</option>
+                                        <option value="5cs_4m_2p_stack">5 Csapat / 4 Meccs / 2 Pálya (Egymás alatt)</option>
+                                        <option value="6cs_4m_2p_side">6 Csapat / 4 Meccs / 2 Pálya (Egymás mellett)</option>
+                                        <option value="6cs_4m_2p_stack">6 Csapat / 4 Meccs / 2 Pálya (Egymás alatt)</option>
+                                        <option value="6cs_4m_3p_side">6 Csapat / 4 Meccs / 3 Pálya (Egymás mellett)</option>
+                                        <option value="6cs_4m_3p_mixed">6 Csapat / 4 Meccs / 3 Pálya (Rács)</option>
+                                        <option value="7cs_4m_3p_side">7 Csapat / 4 Meccs / 3 Pálya (Egymás mellett)</option>
+                                        <option value="7cs_4m_3p_mixed">7 Csapat / 4 Meccs / 3 Pálya (Rács)</option>
+                                        <option value="8cs_4m_4p_grid">8 Csapat / 4 Meccs / 4 Pálya (Rács)</option>
+                                    </optgroup>
+                                </select>
+                                {isCsoportWarning && (
+                                    <div className="mt-2 bg-red-950/50 text-red-300 p-1.5 rounded text-xs text-center font-bold border border-red-800">
+                                        ⚠️ A/B csoport van megadva, de 3 meccses (C szintű) sablont használsz!
+                                    </div>
+                                )}
+                            </section>
+
+                            <section className="space-y-3">
+                                <input type="text" value={tornaAdatok.sorszam} onChange={e => setTornaAdatok({...tornaAdatok, sorszam: e.target.value})} className="w-full bg-slate-800 p-2.5 rounded border border-slate-700 font-bold text-sm placeholder-slate-500" placeholder="Torna sorszáma (pl. SZMINI 205)"/>
+                                <input type="date" value={tornaAdatok.datum} onChange={e => setTornaAdatok({...tornaAdatok, datum: e.target.value})} className="w-full bg-slate-800 p-2.5 rounded border border-slate-700 text-white text-sm font-bold"/>
+                                <input type="text" list="csapat-lista" value={tornaAdatok.rendezo} onChange={e => setTornaAdatok({...tornaAdatok, rendezo: e.target.value})} className="w-full bg-slate-800 p-2.5 rounded border border-slate-700 text-sm" placeholder="Rendező egyesület (Logóhoz)"/>
+                                <input type="text" list="helyszin-lista" value={tornaAdatok.helyszin} onChange={e => setTornaAdatok({...tornaAdatok, helyszin: e.target.value})} className="w-full bg-slate-800 p-2.5 rounded border border-slate-700 text-sm" placeholder="Válassz Helyszínt..."/>
+                                <datalist id="helyszin-lista">{csarnokNevekLista.map(nev => <option key={nev} value={nev} />)}</datalist>
+                                <div className="flex gap-2 items-center">
+                                    <input type="text" list="info-javaslatok" value={tornaAdatok.info} onChange={e => setTornaAdatok({...tornaAdatok, info: e.target.value})} className="flex-grow min-w-0 bg-slate-800 p-2.5 rounded border border-slate-700 text-slate-200 font-bold text-sm placeholder-slate-500 focus:outline-none focus:border-yellow-500" placeholder="Extra infó (pl. KISPÁLYA)"/>
+                                    <input type="color" value={tornaAdatok.infoSzin || '#dc2626'} onChange={e => setTornaAdatok({...tornaAdatok, infoSzin: e.target.value})} className="w-10 h-10 p-0 border-0 rounded cursor-pointer bg-transparent shrink-0" title="Válassz színt az extra infónak!" />
+                                </div>
+                                <datalist id="info-javaslatok">
+                                    <option value="KEZDŐ"></option>
+                                    <option value="KISPÁLYA"></option>
+                                    <option value="2 PÁLYÁN"></option>
+                                    <option value="3 PÁLYÁN"></option>
+                                    <option value="4 PÁLYÁN"></option>
+                                </datalist>
+                                <datalist id="csapat-lista">{csapatNevekLista.map(nev => <option key={nev} value={nev} />)}</datalist>
+                            </section>
+
+                            <section className="pt-4 border-t border-slate-700">
+                                <label className="block text-slate-400 uppercase font-bold mb-3 text-xs">Résztvevő Csapatok</label>
+                                {csapatok.map((cs, i) => {
+                                    const requiredMatch = tornaAdatok.szint.match(/^\d+/);
+                                    const maxCsapat = requiredMatch ? parseInt(requiredMatch[0]) : 8;
+                                    const isNeeded = i < maxCsapat;
+                                    const isError = isNeeded && !cs;
+                                    
+                                    // Ellenőrizzük, hogy ez a mező van-e kijelölve cserére
+                                    const isSelectedForSwap = kivalasztottCsapat === i;
+
+                                    return (
+                                        <div key={i} className={`flex items-center gap-2 mb-2 ${!isNeeded ? 'opacity-30' : ''}`}>
+                                            <span className="w-5 text-center text-slate-500 font-black text-sm">{i+1}</span>
+                                            <input 
+                                                type="text" 
+                                                list="csapat-lista" 
+                                                value={cs} 
+                                                onChange={e => {const n = [...csapatok]; n[i] = e.target.value; setCsapatok(n);}} 
+                                                onClick={() => isNeeded && handleTeamClick(i)}
+                                                readOnly={isSelectedForSwap}
+                                                className={`flex-grow p-2 rounded border text-sm font-bold transition-all cursor-pointer ${
+                                                    isSelectedForSwap 
+                                                        ? 'bg-green-900/40 border-green-500 ring-2 ring-green-500' 
+                                                        : isError 
+                                                            ? 'bg-red-900/50 border-red-500' 
+                                                            : 'bg-slate-800 border-slate-700 focus:border-blue-500'
+                                                }`} 
+                                                placeholder={`Csapat ${i+1}`} 
+                                                disabled={!isNeeded}
+                                            />
+                                            {/* ÚJ: Csapat saját színválasztója */}
+                                            <input type="color" value={csapatSzinek[i]} onChange={e => {const n = [...csapatSzinek]; n[i] = e.target.value; setCsapatSzinek(n);}} className="w-8 h-8 p-0 border-0 rounded cursor-pointer bg-transparent shrink-0" disabled={!isNeeded} title="Csapat színének módosítása"/>
+                                        </div>
+                                    )
+                                })}
+                            </section>
+
+                            {/* --- ÚJ: MENTÉS ÉS BETÖLTÉS GOMBOK --- */}
+                            <div className="flex gap-2 pt-2">
+                                <button onClick={handleSaveJSON} className="flex-1 bg-emerald-700 hover:bg-emerald-600 text-white font-bold py-2.5 rounded shadow text-xs tracking-wider flex justify-center items-center transition-colors">
+                                    💾 MENTÉS
+                                </button>
+                                <input type="file" accept=".json" onChange={handleLoadJSON} ref={fileInputRef} className="hidden" />
+                                <button onClick={() => fileInputRef.current.click()} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-2.5 rounded shadow text-xs tracking-wider flex justify-center items-center transition-colors">
+                                    📂 BETÖLTÉS
+                                </button>
+                            </div>
+
+                            {/* MÓDOSÍTVA: OKOS PDF GOMB */}
+                            <button onClick={handleSmartPrint} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3 rounded-lg shadow-lg text-sm transition-all print-hide">
+                                PDF MENTÉSE
+                            </button>
+                        </div>
+                    </div>
+                    {/* ✂️ ----------------------------------------------- ✂️ */}
+
+                    {/* ✂️ --- 4. BLOKK HELYE: JOBB OLDAL (NYOMTATÁSI DIZÁJN ÉS RÁCSOK) --- ✂️ */}
+                    <div className="flex-grow overflow-auto flex justify-center p-4 bg-slate-500 print:p-0 print:bg-white custom-scrollbar relative">
+                        
+                        <div id="nyomtatasi-terulet" className="bg-white w-[297mm] h-[210mm] relative shadow-2xl shrink-0 overflow-hidden text-[#1e293b]"
+                             style={(() => {
+                                 const isSide = tornaAdatok.szint.includes('side');
+                                 const isU8Stacked = palyakSzama === 4 || (!isSide && palyakSzama >= 2);
+                                 
+                                 let maxRows = 0;
+                                 if (rinkSchedules) {
+                                     palyaBetuk.slice(0, palyakSzama).forEach(r => {
+                                         if (rinkSchedules[r] && rinkSchedules[r].length > maxRows) maxRows = rinkSchedules[r].length;
+                                     });
+                                 }
+                                 const isDenseVertical = isU8Stacked && maxRows > 6;
+
+                                 const fontSizeNum = {
+                                     '1p': 19,
+                                     '2p-3m': 23,
+                                     '2p-4m': 20,
+                                     '3p': 15.5,
+                                     'u8': isDenseVertical ? 11 : 13
+                                 };
+
+                                 return { 
+                                     '--alap-betu-1p': `${fontSizeNum['1p']}px`,   '--fejlec-betu-1p': '17px', '--vs-betu-1p': '11px',
+                                     '--fejlec-mag-1p': '10mm',  '--rolba-mag-1p': '9mm',    '--zaras-mag-1p': '10mm',
+                                     '--alap-betu-2p-3m': `${fontSizeNum['2p-3m']}px`,   '--fejlec-betu-2p-3m': '17px', '--vs-betu-2p-3m': '11px',
+                                     '--fejlec-mag-2p-3m': '10mm',  '--rolba-mag-2p-3m': '9mm',    '--zaras-mag-2p-3m': '10mm',
+                                     '--alap-betu-2p-4m': `${fontSizeNum['2p-4m']}px`,   '--fejlec-betu-2p-4m': '17px', '--vs-betu-2p-4m': '11px',
+                                     '--fejlec-mag-2p-4m': '9mm',   '--rolba-mag-2p-4m': '8mm',    '--zaras-mag-2p-4m': '9mm',
+                                     '--alap-betu-3p': `${fontSizeNum['3p']}px`, '--fejlec-betu-3p': '14px', '--vs-betu-3p': '10px',
+                                     '--fejlec-mag-3p': '8mm',   '--rolba-mag-3p': '7mm',    '--zaras-mag-3p': '8mm',
+                                     '--alap-betu-u8': `${fontSizeNum['u8']}px`,
+                                     '--fejlec-betu-u8': isDenseVertical ? '12px' : '14px', 
+                                     '--vs-betu-u8': isDenseVertical ? '8px' : '10px',
+                                     '--fejlec-mag-u8': isDenseVertical ? '6mm' : '8mm',
+                                     '--rolba-mag-u8': isDenseVertical ? '5mm' : '7mm',
+                                     '--zaras-mag-u8': isDenseVertical ? '6mm' : '8mm'
+                                 };
+                             })()}
+                        >
+                            
+                            {/* VÍZJEL (A kért 0.08-as értékkel) */}
+                            <img 
+                                src="alap_vizjel.png" 
+                                onError={(e) => { e.target.style.display = 'none'; }} 
+                                style={{ position: 'absolute', top: '62mm', left: '6mm', width: '285mm', height: '127mm', opacity: 0.08, zIndex: 0, objectFit: 'contain' }}
+                                alt="Vizjel" 
+                            />
+
+                            {/* --- FEJLÉC --- */}
+                            <div className="absolute top-0 left-0 w-full h-[62mm] z-10 bg-white">
+                                <div className="absolute top-[2mm] left-1/2 transform -translate-x-1/2 text-gray-200 text-[140px] font-black leading-none -z-10 tracking-tighter">
+                                    {tornaAdatok.csoport || ''}
+                                </div>
+                                <div className="absolute top-[36mm] left-1/2 transform -translate-x-1/2 text-center font-black w-full">
+                                    <div className="text-[19px] uppercase tracking-wide">{tornaAdatok.sorszam}</div>
+                                    <div className="text-[19px] -mt-[1px] text-gray-700">{formatDatum(tornaAdatok.datum)}</div>
+                                </div>
+                                <div className="absolute top-[51mm] right-[50mm] text-[18px] font-black tracking-widest text-right" style={{ color: tornaAdatok.infoSzin || '#dc2626' }}>
+                                    {tornaAdatok.info}
+                                </div>
+                                <div className="absolute top-[8mm] left-[15mm] w-[60mm] flex justify-center">
+                                    <div className="h-[40mm] w-full flex items-center justify-center">
+                                        {logofile && <img src={`Csapat_logok/${logofile}.png`} className="max-h-full max-w-full object-contain drop-shadow-md" alt="Rendező" />}
+                                    </div>
+                                </div>
+                                <div className="absolute bottom-[4mm] left-[15mm] w-[60mm] text-[16px] font-black uppercase text-center break-words leading-tight">
+                                    {tornaAdatok.rendezo}
+                                </div>
+                                <div className="absolute bottom-[4mm] left-1/2 transform -translate-x-1/2 w-[160mm] text-center text-[17px] font-black">
+                                    {tornaAdatok.helyszin}
+                                </div>
+                                <div className="absolute top-[8mm] right-[15mm] w-[60mm] flex justify-center">
+                                    <div className="h-[40mm] w-full flex items-center justify-center p-1">
+                                        <img src="Csapat_logok/MJSZ.png" className="max-h-full max-w-full object-contain drop-shadow-md" alt="MJSZ" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* --- TÁBLÁZATOK --- */}
+                            <div 
+                                className={`absolute z-10`} 
+                                style={(() => {
+                                    const isSide = tornaAdatok.szint.includes('side');
+                                    const isU8Stacked = palyakSzama === 4 || (!isSide && palyakSzama >= 2);
+                                    if (palyakSzama === 1) return { top: '62mm', left: '44mm', width: '208mm', height: '127mm', display: 'flex', flexDirection: 'column' };
+                                    if (palyakSzama === 3 && isSide) return { top: '62mm', left: '13mm', width: '274mm', height: '127mm', display: 'grid', gridTemplateColumns: '87mm 87mm 88mm', columnGap: '6mm' };
+                                    if (palyakSzama === 2 && isSide) return { top: '62mm', left: '13mm', width: '271mm', height: '127mm', display: 'grid', gridTemplateColumns: '122mm 122mm', columnGap: '27mm' };
+                                    if (isU8Stacked) return { top: '62mm', left: '13mm', width: '271mm', height: '127mm', display: 'grid', gridTemplateColumns: '122mm 122mm', gridTemplateRows: '61mm 61mm', columnGap: '27mm', rowGap: '5mm' };
+                                    return { top: '62mm', left: '15mm', right: '15mm', height: '127mm', display: 'flex', flexDirection: 'column' };
+                                })()}
+                            >
+                                {palyaBetuk.slice(0, palyakSzama).map(rinkLetter => {
+                                    const isSide = tornaAdatok.szint.includes('side');
+                                    const isU8Stacked = palyakSzama === 4 || (!isSide && palyakSzama >= 2);
+                                    const is3m = tornaAdatok.szint.includes('3m');
+
+                                    const betuAlap = palyakSzama === 1 ? 'var(--alap-betu-1p)' : (isU8Stacked ? 'var(--alap-betu-u8)' : (palyakSzama === 3 ? 'var(--alap-betu-3p)' : (is3m ? 'var(--alap-betu-2p-3m)' : 'var(--alap-betu-2p-4m)')));
+                                    
+                                    let maxRowsLocal = 0;
+                                    if (rinkSchedules) { palyaBetuk.slice(0, palyakSzama).forEach(r => { if (rinkSchedules[r] && rinkSchedules[r].length > maxRowsLocal) maxRowsLocal = rinkSchedules[r].length; }); }
+                                    const isDenseLocal = isU8Stacked && maxRowsLocal > 6;
+                                    const fontNumsLocal = { '1p': 19, '2p-3m': 23, '2p-4m': 20, '3p': 15.5, 'u8': isDenseLocal ? 11 : 13 };
+                                    const numericAlap = palyakSzama === 1 ? fontNumsLocal['1p'] : (isU8Stacked ? fontNumsLocal['u8'] : (palyakSzama === 3 ? fontNumsLocal['3p'] : (is3m ? fontNumsLocal['2p-3m'] : fontNumsLocal['2p-4m'])));
+
+                                    const betuFejlec = palyakSzama === 1 ? 'var(--fejlec-betu-1p)' : (isU8Stacked ? 'var(--fejlec-betu-u8)' : (palyakSzama === 3 ? 'var(--fejlec-betu-3p)' : (is3m ? 'var(--fejlec-betu-2p-3m)' : 'var(--fejlec-betu-2p-4m)')));
+                                    const betuVs = palyakSzama === 1 ? 'var(--vs-betu-1p)' : (isU8Stacked ? 'var(--vs-betu-u8)' : (palyakSzama === 3 ? 'var(--vs-betu-3p)' : (is3m ? 'var(--vs-betu-2p-3m)' : 'var(--vs-betu-2p-4m)')));
+                                    const betuRolbaText = '14px';
+
+                                    const magFejlec = palyakSzama === 1 ? 'var(--fejlec-mag-1p)' : (isU8Stacked ? 'var(--fejlec-mag-u8)' : (palyakSzama === 3 ? 'var(--fejlec-mag-3p)' : (is3m ? 'var(--fejlec-mag-2p-3m)' : 'var(--fejlec-mag-2p-4m)')));
+                                    const magRolba = palyakSzama === 1 ? 'var(--rolba-mag-1p)' : (isU8Stacked ? 'var(--rolba-mag-u8)' : (palyakSzama === 3 ? 'var(--rolba-mag-3p)' : (is3m ? 'var(--rolba-mag-2p-3m)' : 'var(--rolba-mag-2p-4m)')));
+                                    const magZaras = palyakSzama === 1 ? 'var(--zaras-mag-1p)' : (isU8Stacked ? 'var(--zaras-mag-u8)' : (palyakSzama === 3 ? 'var(--zaras-mag-3p)' : (is3m ? 'var(--zaras-mag-2p-3m)' : 'var(--zaras-mag-2p-4m)')));
+
+                                    let gridStyle = {};
+                                    if (isU8Stacked) {
+                                        gridStyle = {
+                                            gridColumn: (rinkLetter === 'A' || rinkLetter === 'B') ? 1 : 2,
+                                            gridRow: (rinkLetter === 'A' || rinkLetter === 'C') ? 1 : 2
+                                        };
+                                    }
+
+                                    // --- MÉRŐSZALAG FUNKCIÓ (Színekkel okosítva) ---
+                                    const getDynamicStyle = (teamName, baseSizeVar, numericSize, pSzama, side, stacked, teamColor, isRedWarning) => {
+                                        // Itt érvényesül a szigorú szabály: Ha piros figyelmeztetés kell, az felülírja a te egyedi színedet!
+                                        const finalColor = isRedWarning ? '#dc2626' : (teamColor || '#1e293b');
+                                        
+                                        if (isInvalidTeam(teamName)) return { fontSize: baseSizeVar, lineHeight: '1.1', color: finalColor };
+                                        const words = teamName.split(' ');
+                                        let maxWeight = 0;
+                                        words.forEach(word => {
+                                            let weight = 0;
+                                            for (let i = 0; i < word.length; i++) {
+                                                const char = word[i];
+                                                if (char.toUpperCase() === char && char.match(/[A-ZÁÉÍÓÖŐÚÜŰ]/)) weight += 1.3;
+                                                else if (char === 'm' || char === 'w') weight += 1.3;
+                                                else if (char === 'i' || char === 'l' || char === 't' || char === 'f' || char === 'j' || char === '.' || char === '-') weight += 0.5;
+                                                else weight += 1.0;
+                                            }
+                                            if (weight > maxWeight) maxWeight = weight;
+                                        });
+                                        const estimatedPixelWidth = maxWeight * numericSize * 0.55;
+                                        let availablePixels = 175;
+                                        if (pSzama === 1) availablePixels = 340;
+                                        else if (pSzama === 3 && side && !stacked) availablePixels = 110;
+
+                                        if (estimatedPixelWidth > availablePixels) {
+                                            let scale = (availablePixels / estimatedPixelWidth) * 0.96; 
+                                            if (scale < 0.65) scale = 0.65;
+                                            return { fontSize: `calc(${baseSizeVar} * ${scale})`, lineHeight: '1.05', color: finalColor };
+                                        }
+                                        return { fontSize: baseSizeVar, lineHeight: '1.1', color: finalColor };
+                                    };
+
+                                    return (
+                                        <div key={rinkLetter} className={`flex flex-col border-[2px] border-[#1e293b] rounded bg-transparent h-full overflow-hidden`} style={gridStyle}>
+                                            <div className="bg-[#1e293b] text-white text-center flex-shrink-0 font-black uppercase tracking-widest flex justify-center gap-2 items-center" style={{ fontSize: betuFejlec, height: magFejlec }}>
+                                                <span>"{rinkLetter}" PÁLYA</span>
+                                                {rinkLetter === 'A' && (
+                                                    <span className="font-normal tracking-normal opacity-80" style={{ fontSize: betuRolbaText }}>(rolba felöli oldal)</span>
+                                                )}
+                                            </div>
+
+                                            <div className="flex-grow flex flex-col divide-y divide-[#1e293b]">
+                                                {rinkSchedules[rinkLetter].map((row, i) => {
+                                                    // --- ZEBRA LOGIKA ÉS TESTVÉRHARC FIGYELŐ ---
+                                                    let lastRolbaIdx = -1;
+                                                    for (let k = 0; k < i; k++) { if (rinkSchedules[rinkLetter][k].tipus === 'rolba') lastRolbaIdx = k; }
+                                                    const relativIdx = i - (lastRolbaIdx + 1);
+                                                    const zebraBg = relativIdx % 2 === 0 ? 'transparent' : 'rgba(203, 213, 225, 0.5)';
+
+                                                    // Testvérharc vizsgálata (Megfordított logika)
+                                                    let isTestver = false;
+                                                    if (row.tipus === 'meccs') {
+                                                        const valosH = csapatok[manualOverrides[`${rinkLetter}-${i}-h`] ?? row.h];
+                                                        const valosV = csapatok[manualOverrides[`${rinkLetter}-${i}-v`] ?? row.v];
+                                                        // Sárgul, ha testvérek ÉS NINCS kipipálva a jóváhagyás gomb!
+                                                        isTestver = !utkozesEngedelyezve && areSameClub(valosH, valosV);
+                                                    }
+                                                    
+                                                    // Ha testvérek, sárga lesz a háttér, ha nem, marad a zebra
+                                                    const sorHatter = isTestver ? 'rgba(250, 204, 21, 0.4)' : zebraBg;
+
+                                                    if (row.tipus === 'zaras') {
+                                                        return (
+                                                            <div key={i} className="flex w-full flex-shrink-0 bg-[#1e293b] text-white" style={{ height: magZaras }}>
+                                                                <div className="w-[15mm] flex-shrink-0 border-r border-slate-500 flex justify-center items-center font-black" style={{ fontSize: betuAlap }}>{row.ido}</div>
+                                                                <div className="flex-1 flex justify-center items-center font-black uppercase tracking-widest" style={{ fontSize: betuFejlec }}>TORNA ZÁRÁSA</div>
+                                                            </div>
+                                                        )
+                                                    }
+
+                                                    if (row.tipus === 'rolba') {
+                                                        return (
+                                                            <div key={i} className="flex w-full flex-shrink-0 bg-[#475569]" style={{ height: magRolba }}>
+                                                                <div className="w-[15mm] flex-shrink-0 border-r border-slate-500 flex justify-center items-center font-black text-white" style={{ fontSize: betuAlap }}>{row.ido}</div>
+                                                                <div className="flex-1 flex justify-center items-center font-black text-white uppercase tracking-widest" style={{ fontSize: betuFejlec }}>SZÜNET (ROLBA)</div>
+                                                            </div>
+                                                        )
+                                                    }
+
+                                                    return (
+                                                        // ITT KAPJA MEG A SÁRGA/ZEBRA HÁTTERET (zebraBg helyett sorHatter)
+                                                        <div key={i} className="flex w-full flex-1 min-h-0" style={{ backgroundColor: sorHatter, WebkitPrintColorAdjust: 'exact' }}>
+                                                            <div className="w-[15mm] flex-shrink-0 border-r border-[#1e293b] flex justify-center items-center font-black text-[#1e293b]" style={{ fontSize: betuAlap }}>
+                                                                {row.ido}
+                                                            </div>
+                                                            <div className="flex-grow flex w-full min-w-0">
+                                                                {row.tipus === 'meccs' ? (
+                                                                    <>
+                                                                        {/* HAZAI CSAPAT (h) */}
+<div className={`flex-1 w-0 min-w-0 max-h-full overflow-hidden flex justify-center items-center text-center px-1 font-bold break-words cursor-pointer hover:bg-blue-200/30 transition-colors`} 
+     onClick={() => handleTableTeamClick(rinkLetter, i, 'h')}
+     style={getDynamicStyle(
+         csapatok[manualOverrides[`${rinkLetter}-${i}-h`] ?? row.h], 
+         betuAlap, numericAlap, palyakSzama, isSide, isU8Stacked,
+         csapatSzinek[manualOverrides[`${rinkLetter}-${i}-h`] ?? row.h],
+         row.isHRed
+     )}>
+    {isInvalidTeam(csapatok[manualOverrides[`${rinkLetter}-${i}-h`] ?? row.h]) ? '' : csapatok[manualOverrides[`${rinkLetter}-${i}-h`] ?? row.h]}
+</div>
+
+<div className="w-[12mm] flex-shrink-0 flex justify-center items-center font-black text-gray-400 opacity-60" style={{ fontSize: betuVs }}>vs</div>
+
+{/* VENDÉG CSAPAT (v) - Itt volt a hiba! */}
+<div className={`flex-1 w-0 min-w-0 max-h-full overflow-hidden flex justify-center items-center text-center px-1 font-bold break-words cursor-pointer hover:bg-blue-200/30 transition-colors`} 
+     onClick={() => handleTableTeamClick(rinkLetter, i, 'v')}
+     style={getDynamicStyle(
+         csapatok[manualOverrides[`${rinkLetter}-${i}-v`] ?? row.v], 
+         betuAlap, numericAlap, palyakSzama, isSide, isU8Stacked,
+         csapatSzinek[manualOverrides[`${rinkLetter}-${i}-v`] ?? row.v],
+         row.isVRed
+     )}>
+    {isInvalidTeam(csapatok[manualOverrides[`${rinkLetter}-${i}-v`] ?? row.v]) ? '' : csapatok[manualOverrides[`${rinkLetter}-${i}-v`] ?? row.v]}
+</div>
+                                                                    </>
+                                                                ) : (
+                                                                    <div className="flex-1 flex justify-center items-center font-black text-gray-400 uppercase tracking-widest" style={{ fontSize: betuAlap }}></div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+
+                            <div className="absolute bottom-[6mm] left-[15mm] right-[15mm] flex justify-between items-end text-[10px] font-black z-10 border-t-2 border-[#1e293b] pt-1 bg-white">
+                                <div className="text-gray-500 tracking-wide">http://jegkorongszovetseg.hu</div>
+                                <div className="text-red-600 uppercase text-[9px] tracking-wider text-center">A tornán csak érvényes versenyengedéllyel, és érvényes sportorvosival rendelkező játékosok játszhatnak!</div>
+                                <div className="text-gray-500 tracking-wide">horvath.attila@icehockey.hu</div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<SorsolasApp />);
+    </script>
+</body>
+</html>
