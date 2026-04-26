@@ -215,6 +215,7 @@
             // --- ÚJ: CSAPATCSERE ÉS KONKRÉT MECCS FELÜLÍRÁS MEMÓRIÁJA ---
             const [kivalasztottCsapat, setKivalasztottCsapat] = useState(null);
             const [manualOverrides, setManualOverrides] = useState({});
+	    const [isJSONLoading, setIsJSONLoading] = useState(false);
 
             // --- SEGÉDFUNKCIÓ: ÉKEZETMENTESÍTÉS A FÁJLNEVEKHEZ ---
             const cleanFileName = (text) => {
@@ -223,12 +224,20 @@
                 return clean.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
             };
 
-            // JAVÍTOTT: Sablonváltáskor CSAK a kijelöléseket vesszük le, 
-            // de a manualOverrides radírozását KIVESSZÜK innen, hogy betöltéskor ne töröljön!
+            // --- A REFORMÁLT RADAR (Ez váltja a régit!) ---
             useEffect(() => {
+                // Ha JSON betöltés van folyamatban, a Radar megáll és nem nyúl semmihez
+                if (isJSONLoading) return;
+
+                // Ha nem JSON töltődik (hanem pl. beillesztettél), akkor mehet az automatika
+                const ujSzint = autoSelectTemplate(tornaAdatok, csapatok);
+                if (ujSzint !== tornaAdatok.szint) {
+                    setTornaAdatok(prev => ({ ...prev, szint: ujSzint }));
+                }
+                
                 setUtkozesEngedelyezve(false);
                 setKivalasztottCsapat(null);
-            }, [tornaAdatok.szint]);
+            }, [csapatok, tornaAdatok.korosztaly, tornaAdatok.csoport, isJSONLoading]);
 // --- KÖZPONTI INTELLIGENCIA: AUTOMATIKUS SABLONVÁLASZTÓ MOTOR ---
             const autoSelectTemplate = (currentAdatok, currentCsapatok, forceText = null) => {
                 const talaltCsapatokSzama = currentCsapatok.filter(c => c && c.trim() !== '' && c !== 'SZABAD').length;
@@ -278,56 +287,46 @@
                 return baseSzint;
             };
 
-            // --- ADATOK MENTÉSE (ÉKEZETMENTES FÁJLNÉVVEL) ---
+            // --- ADATOK MENTÉSE ÉS BETÖLTÉSE (EGYBEFÜGGŐ, JAVÍTOTT BLOKK) ---
+
             const handleSaveJSON = () => {
                 const dataToSave = { tornaAdatok, csapatok, csapatSzinek, manualOverrides };
                 const jsonStr = JSON.stringify(dataToSave, null, 2);
                 const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
                 const url = URL.createObjectURL(blob);
-                
-                // Használjuk az új cleanFileName funkciót a sorszámra és rendezőre
                 const rawName = `${tornaAdatok.sorszam}_${tornaAdatok.rendezo}`;
                 const safeName = cleanFileName(rawName) || 'sorsolas';
-                
                 const a = document.createElement("a");
-                a.href = url; 
-                a.download = `${safeName}.json`; 
-                a.click();
+                a.href = url; a.download = `${safeName}.json`; a.click();
                 URL.revokeObjectURL(url);
             };
 
-            // --- ADATOK BETÖLTÉSE (STABIL, TISZTA LAPOS VERZIÓ) ---
             const handleLoadJSON = (e) => {
                 const file = e.target.files[0]; if (!file) return;
                 const reader = new FileReader();
                 reader.onload = (ev) => {
                     try {
                         const data = JSON.parse(ev.target.result);
+                        setIsJSONLoading(true); // VÉDELEM BE
                         
-                        // 1. TELJES TAKARÍTÁS: Előbb mindent alaphelyzetbe teszünk
                         setManualOverrides({}); 
                         setCsapatSzinek(Array(8).fill('#1e293b'));
                         setCsapatok(['', '', '', '', '', '', '', '']);
-                        setUtkozesEngedelyezve(false);
-
-                        // 2. ADATOK BEÖNTÉSE: Mivel nincs háttérfigyelő, pontosan az kerül be, ami a fájlban van
+                        
                         if (data.csapatok) setCsapatok(data.csapatok);
                         if (data.csapatSzinek) setCsapatSzinek(data.csapatSzinek);
                         if (data.tornaAdatok) setTornaAdatok(data.tornaAdatok);
                         
-                        // 3. CSERÉK RÁILLESZTÉSE: Egy pici szünetet hagyunk a Reactnak a rács kirajzolására
                         setTimeout(() => {
-                            if (data.manualOverrides) {
-                                setManualOverrides(data.manualOverrides);
-                            }
+                            if (data.manualOverrides) setManualOverrides(data.manualOverrides);
+                            setIsJSONLoading(false); // VÉDELEM KI
                         }, 150);
-
                     } catch (err) { 
-                        alert("Hiba a fájl beolvasásakor! Lehet, hogy nem megfelelő a formátum."); 
+                        setIsJSONLoading(false);
+                        alert("Hiba a fájl beolvasásakor!"); 
                     }
                 };
-                reader.readAsText(file); 
-                e.target.value = null; // Hogy ugyanazt a fájlt egymás után is be lehessen tölteni
+                reader.readAsText(file); e.target.value = null;
             };
 
             // --- OKOS PDF NYOMTATÁS ---
@@ -642,7 +641,7 @@
                     {/* ✂️ --- 3. BLOKK HELYE: BAL OLDAL (VEZÉRLŐPULT) --- ✂️ */}
                     <div className="w-full md:w-96 bg-slate-900 text-white p-5 overflow-y-auto shadow-2xl z-20 print-hide h-full shrink-0 flex flex-col gap-4 custom-scrollbar">
                         <h2 className="text-xl font-black text-blue-400 border-b border-slate-700 pb-3 flex justify-between items-center">
-                            SORSOLÁS v5.0
+                            SORSOLÁS v5.1
                             <label className={`flex items-center gap-1.5 text-[10px] uppercase font-bold cursor-pointer px-2 py-1.5 rounded transition ${utkozesEngedelyezve ? 'bg-green-900/40 text-green-400' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`} title="Pipáld be, ha JÓVÁHAGYOD a testvérharcot (eltűnik a sárga figyelmeztetés)">
                                 <input type="checkbox" checked={utkozesEngedelyezve} onChange={() => setUtkozesEngedelyezve(!utkozesEngedelyezve)} className="accent-green-500 w-3 h-3"/>
                                 Testvérharc OK
