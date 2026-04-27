@@ -503,7 +503,7 @@
 
             // 3. A Sorsolási Sablonok Tárháza
             const sablonData = {
-                '3cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:1}] }, { meccsek: [{h:2,v:0}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:2}] }, { meccsek: [{h:1,v:2}] }, { meccsek: [{h:1,v:0}] }, { kor: 'ZARAS' }],
+				'3cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:1}] }, { meccsek: [{h:2,v:0}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:2}] }, { meccsek: [{h:1,v:2}] }, { meccsek: [{h:1,v:0}] }, { kor: 'ZARAS' }],
                 '4cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:3}] }, { meccsek: [{h:0,v:2}] }, { meccsek: [{h:1,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:2,v:1}] }, { meccsek: [{h:3,v:0}] }, { meccsek: [{h:1,v:0}] }, { meccsek: [{h:3,v:2}] }, { kor: 'ZARAS' }],
                 '4cs_4m_2p': [{ meccsek: [{h:0,v:1}, {h:2,v:3}] }, { meccsek: [{h:0,v:2}, {h:1,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:2,v:1}, {h:3,v:0}] }, { meccsek: [{h:1,v:0}, {h:3,v:2}] }, { kor: 'ZARAS' }],
                 '5cs_4m_2p': [{ meccsek: [{h:0,v:1}, {h:3,v:2}] }, { meccsek: [{h:0,v:3}, {h:1,v:4}] }, { meccsek: [{h:2,v:4}, null] }, { kor: 'ROLBA' }, { meccsek: [{h:2,v:0}, {h:3,v:1}] }, { meccsek: [{h:2,v:1}, {h:4,v:3}] }, { meccsek: [{h:4,v:0}, null] }, { kor: 'ZARAS' }],
@@ -514,7 +514,8 @@
             };
 
             const cSablonData = {
-                '4cs_3m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:3}] }, { meccsek: [{h:2,v:0}] }, { kor: 'ROLBA' }, { meccsek: [{h:1,v:3}] }, { meccsek: [{h:1,v:2}] }, { meccsek: [{h:0,v:3}] }, { kor: 'ZARAS' }],
+                '3cs_3m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:1}] }, { meccsek: [{h:2,v:0}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:2}] }, { meccsek: [{h:1,v:0}] }, { kor: 'ZARAS' }],
+				'4cs_3m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:3}] }, { meccsek: [{h:2,v:0}] }, { kor: 'ROLBA' }, { meccsek: [{h:1,v:3}] }, { meccsek: [{h:1,v:2}] }, { meccsek: [{h:0,v:3}] }, { kor: 'ZARAS' }],
                 '4cs_3m_2p': [{ meccsek: [{h:0,v:1}, {h:2,v:3}] }, { meccsek: [{h:0,v:2}, {h:1,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:2,v:1}, {h:3,v:0}] }, { kor: 'ZARAS' }],
                 '5cs_3m_2p': [{ meccsek: [{h:0,v:1}, {h:4,v:2}] }, { meccsek: [{h:0,v:2}, {h:1,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:3}, {h:1,v:4}] }, { meccsek: [{h:0,v:4}, {h:2,v:3}] }, { kor: 'ZARAS' }],
                 '6cs_3m_2p': [{ meccsek: [{h:0,v:1}, {h:2,v:3}] }, { meccsek: [{h:4,v:5}, {h:0,v:3}] }, { meccsek: [{h:1,v:4}, {h:2,v:5}] }, { kor: 'ROLBA' }, { meccsek: [{h:2,v:4}, {h:3,v:1}] }, { meccsek: [{h:5,v:0}, null] }, { kor: 'ZARAS' }],
@@ -677,7 +678,8 @@
                                 
                                 <select value={tornaAdatok.szint} onChange={e => setTornaAdatok({...tornaAdatok, szint: e.target.value})} className={`w-full p-2 rounded text-sm font-bold border outline-none ${isCsoportWarning ? 'bg-red-900 border-red-500' : 'bg-slate-700 border-slate-600'}`}>
                                     <optgroup label="3 Csapatos Tornák">
-                                        <option value="3cs_4m_1p">3 Csapat / 4 Meccs / 1 Pálya</option>
+                                        <option value="3cs_3m_1p">3 Csapat / 3 Meccs / 1 Pálya</option>
+										<option value="3cs_4m_1p">3 Csapat / 4 Meccs / 1 Pálya</option>
                                     </optgroup>
                                     <optgroup label="4 Csapatos Tornák (A/B szint)">
                                         <option value="4cs_4m_1p">4 Csapat / 4 Meccs / 1 Pálya</option>
