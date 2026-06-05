@@ -492,8 +492,8 @@
             });
 
             // 4. Matek és Elrendezés
-            const meccsPerc = tornaAdatok.egyediMeccsPerc ? parseInt(tornaAdatok.egyediMeccsPerc, 10) : (tornaAdatok.korosztaly === 'U8' ? 20 : 27);
-            const rolbaPerc = tornaAdatok.egyediSzunetPerc ? parseInt(tornaAdatok.egyediSzunetPerc, 10) : 15;
+            const meccsPerc = tornaAdatok.egyediMeccsPerc ? parseInt(tornaAdatok.egyediMeccsPerc, 10) : 20;
+            const rolbaPerc = tornaAdatok.egyediSzunetPerc ? parseInt(tornaAdatok.egyediSzunetPerc, 10) : 20;
             const bemelegitesPerc = tornaAdatok.egyediBemelegitesPerc ? parseInt(tornaAdatok.egyediBemelegitesPerc, 10) : 10;
             const palyaBetuk = ["A", "B", "C", "D", "E", "F"];
             const msz = useMemo(() => sablonAdatbazis[tornaAdatok.szint] || sablonAdatbazis['4cs_4m_2p_side'], [tornaAdatok.szint]);
@@ -511,12 +511,31 @@
 
             useEffect(() => { setTornaAdatok(prev => ({...prev, palyaTipus: `${palyakSzama}_palya`})); }, [palyakSzama]);
 
+            // --- INLINE OKOS IDŐSZÁMÍTÓ MOTOR ---
             const getIdopont = (korIndex) => {
-                let korokSzama = 0;
-                let rolbakSzama = 0;
-                for(let i=0; i<korIndex; i++) { if(msz[i].kor === 'ROLBA') rolbakSzama++; else if (msz[i].kor !== 'ZARAS') korokSzama++; }
                 let [ora, perc] = (tornaAdatok.kezdes || '00:00').split(':').map(Number);
-                let ossz = ora * 60 + perc + (korokSzama * meccsPerc) + (rolbakSzama * rolbaPerc);
+                let ossz = ora * 60 + perc;
+
+                if (msz) {
+                    for (let i = 0; i < korIndex; i++) {
+                        const currentSor = msz[i];
+                        const nextSor = i + 1 < msz.length ? msz[i + 1] : null;
+
+                        if (currentSor.kor === 'ROLBA') {
+                            // Ha ROLBA/SZÜNET volt, hozzáadjuk a szünetet(20) és a következő meccs bemelegítését(10)
+                            ossz += rolbaPerc + bemelegitesPerc; 
+                        } else if (currentSor.kor !== 'ZARAS') {
+                            // Ha MECCS volt, megnézzük mi jön utána
+                            if (nextSor && !nextSor.kor) { 
+                                // Ha a következő IS MECCS (4 csapat 1 pálya), akkor: meccs(20) + csere(5) + bemelegítés(10)
+                                ossz += meccsPerc + 5 + bemelegitesPerc; 
+                            } else {
+                                // Ha a következő SZÜNET vagy ZÁRÁS, akkor csak maga a meccs hossza(20)
+                                ossz += meccsPerc;
+                            }
+                        }
+                    }
+                }
                 return `${Math.floor(ossz / 60)}:${(ossz % 60).toString().padStart(2, '0')}`;
             };
 
