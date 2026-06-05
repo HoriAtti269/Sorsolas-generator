@@ -797,7 +797,7 @@
                         <div id="nyomtatasi-terulet" className="bg-white w-[297mm] h-[210mm] relative shadow-2xl shrink-0 overflow-hidden text-black font-sans" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
 
                             {/* --- FEJLÉC (Homokszínű háttér) --- */}
-                            <div className="absolute top-0 left-0 w-full h-[45mm] bg-[#f4ebe1] flex items-center justify-between px-[10mm] border-b-[2px] border-black">
+                            <div className="absolute top-0 left-0 w-full h-[45mm] bg-[#fce4d6] flex items-center justify-between px-[10mm] border-b-[2px] border-black">
                                 {/* Bal logó - FIX INLINE LOGÓ */}
                                 <div className="w-[45mm] h-[35mm] flex items-center justify-center">
                                      <img src="Csapat_logok/inline_logo.png" className="max-h-full max-w-full object-contain" alt="Inline" />
@@ -865,7 +865,7 @@
                                         let lastRolbaIdx = -1;
                                         for (let k = 0; k < i; k++) { if (rinkSchedules['A'][k].tipus === 'rolba') lastRolbaIdx = k; }
                                         const relativIdx = i - (lastRolbaIdx + 1);
-                                        const rowBg = relativIdx % 2 === 0 ? 'bg-[#f4ebe1]' : 'bg-[#e5d8c8]';
+                                        const rowBg = relativIdx % 2 === 0 ? 'bg-[#fce4d6]' : 'bg-[#e5d8c8]';
 
                                         return (
                                             <div key={i} className={`flex text-black font-bold text-center items-stretch flex-1 ${rowBg}`}>
@@ -901,10 +901,11 @@
                             </div>
 
                             {/* --- LÁBLÉC --- */}
-                            <div className="absolute bottom-[4mm] left-[8mm] right-[8mm] flex justify-between text-[11px] font-bold text-gray-500 tracking-wide">
-                                <div>{/* http://jegkorongszovetseg.hu */}</div>
-                                <div className="text-red-700 uppercase text-[9px] tracking-wider text-center">{/* A tornán csak érvényes versenyengedéllyel, és érvényes sportorvosival rendelkező játékosok játszhatnak! */}</div>
-                                <div>{/* horvath.attila@icehockey.hu */}</div>
+                            {/* Ha később kell a szöveg, csak töröld ki az 'invisible' szót a className végéről! */}
+                            <div className="absolute bottom-[4mm] left-[8mm] right-[8mm] flex justify-between text-[11px] font-bold text-gray-500 tracking-wide invisible">
+                                <div>http://jegkorongszovetseg.hu</div>
+                                <div className="text-red-700 uppercase text-[9px] tracking-wider text-center">A tornán csak érvényes versenyengedéllyel, és érvényes sportorvosival rendelkező játékosok játszhatnak!</div>
+                                <div>horvath.attila@icehockey.hu</div>
                             </div>
 
                         </div>
