@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jégkorongnap Menetrend</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+
+    <style>
+        /* Nyomtatás: A3 FEKVŐ, mert a menetrend széles (öt doboz egymás mellett) */
+        @media print {
+            @page { size: A3 landscape; margin: 6mm; }
+            body { margin: 0; background: white; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            .print-hide { display: none !important; }
+            .lap { box-shadow: none !important; margin: 0 !important; page-break-after: always; width: 408mm !important; }
+            .lap:last-child { page-break-after: auto; }
+            /* A görgethető dobozból a böngésző csak a LÁTHATÓ részt nyomtatná */
+            html, body { height: auto !important; overflow: visible !important; }
+            #gyoker { display: block !important; height: auto !important; overflow: visible !important; }
+            #lapok { padding: 0 !important; background: white !important;
+                     height: auto !important; overflow: visible !important; display: block !important; }
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        /* Betűméretek a tavalyi Excel szerint: Arial 13pt bold mindenhol */
+        .lap { font-family: Arial, "Liberation Sans", sans-serif; }
+        .mtabla { border-collapse: collapse; table-layout: fixed; }
+        .mtabla td, .mtabla th { border: 1px solid #000; padding: 1px 2px; font-size: 13px;
+                                 line-height: 1.1; text-align: center; font-weight: 700; height: 34px; }
+        .mtabla .elvalaszto { background: #9ca3af; padding: 0; }
+        .mtabla .nevcella { overflow: hidden; }
+        .nevszoveg { display: block; width: 100%; line-height: 1.1; }
+        .mtabla .kotojel { padding: 0; }
+        .mtabla .idocella { font-weight: 700; }
+        .mtabla .zarassor { font-weight: 700; }
+        /* Szintszínek az időoszlopon (KÉK = A, SÁRGA = B, PIROS = C) */
+        .szint-A { background: #00B0F0; }
+        .szint-B { background: #FFFF00; }
+        .szint-C { background: #FF0000; }
+        .lapfejlec { font-size: 26px; font-weight: 900; line-height: 1.1; }
+        .lapfejlec input { font-size: 26px; font-weight: 900; }
+        .fejlecinput { border: 1px dashed #60a5fa; background: #eff6ff; width: 100%; }
+        .sorgomb { font-weight: 700; padding: 0 1px; line-height: 1; font-size: 10px; }
+        .sorgomb:disabled { opacity: 0.25; cursor: default; }
+        .mtabla.szerk td, .mtabla.szerk th { font-size: 10.5px; height: 26px; }
+        .mtabla.szerk .valaszthato { cursor: pointer; }
+        .mtabla.szerk .valaszthato:hover { background: #dbeafe; }
+        .mtabla .kijelolt { background: #6ee7b7 !important; outline: 2px solid #059669; outline-offset: -2px; }
+        /* Keresztcserével áthelyezett csapat -- CSAK szerkesztés módban látszik */
+        .mtabla.szerk .cserelt { background: #fde68a; outline: 2px dashed #b45309; outline-offset: -2px; }
+        /* Üres mérkőzéshely: fehér, vonalak nélkül -- a szomszédok kerete határolja */
+        .mtabla .uresvezet { border-top: none; border-bottom: none; background: #fff; }
+    </style>
+</head>
+<body class="bg-slate-200">
+    <div id="root"></div>
+
+<script type="text/babel">
+const { useState, useMemo, useEffect, useRef, useLayoutEffect } = React;
+
+// ✂️ ------------------------ 1. BLOKK: ADATBÁZIS ------------------------ ✂️
+
+// A PÁLYAPÁR az alapegység: két egymás melletti pálya, amin EGY blokk játszik.
+// doboz: hányadik oszlopban áll a papíron (0-tól) · hol: 'felso' | 'also' | 'osztott'
+// Az OSZTOTT pár két sávja a papíron egymás ALATT van (tavaly a 9-es és a 10-es).
+// zart: korosztályonként sávonként kikapcsolható, a helye üresen marad.
+const ADAT = {
+    fejlec: { datum: '2026. Január 24.', nap: 'Szombat', hely: 'Városligeti Műjégpálya' },
+
+    // A korosztályok SORRENDJE a torna sorrendje: az elöl álló kezd. Felcserélhető.
+    // Egy mérkőzéshely hossza = játékidő + átállás; a pályák egyszerre lépnek.
+    korosztalyok: [
+        { nev: 'U8',  kezdes: '9:00',  jatekido: 18, atallas: 2, felirat: '1x18 perc' },
+        { nev: 'U10', kezdes: '11:30', jatekido: 24, atallas: 3, felirat: '2x12 perc' }
+    ],
+    meccsDb: 6,      // mérkőzéshely pályánként, korosztályonként
+    korMeccs: 3,     // egy KÖR ennyi mérkőzésből áll -- ez adja az 1., 2., 3., 4. kört
+
+    parok: [
+        { id: 'p2', doboz: 0, hol: 'felso',   savok: [{ szam: '3' },  { szam: '4' }] },
+        { id: 'p1', doboz: 0, hol: 'also',    savok: [{ szam: '1' },  { szam: '2' }] },
+        { id: 'p4', doboz: 1, hol: 'felso',   savok: [{ szam: '7' },  { szam: '8' }] },
+        { id: 'p3', doboz: 1, hol: 'also',    savok: [{ szam: '5' },  { szam: '6' }] },
+        { id: 'p5', doboz: 2, hol: 'osztott', savok: [{ szam: '9' },  { szam: '10' }], zart: { U8: [true, true] } },
+        { id: 'p7', doboz: 3, hol: 'felso',   savok: [{ szam: '11' }, { szam: '12' }] },
+        { id: 'p6', doboz: 3, hol: 'also',    savok: [{ szam: '13' }, { szam: '14' }] },
+        { id: 'p9', doboz: 4, hol: 'felso',   savok: [{ szam: '15' }, { szam: '16' }] },
+        { id: 'p8', doboz: 4, hol: 'also',    savok: [{ szam: '17' }, { szam: '18' }] }
+    ],
+
+    // A 2025-ös menetrend váza, a feltöltött Excelből kinyerve (30 blokk, 183 mérkőzés).
+    // A blokkot a PÁLYAPÁR és a KÖR azonosítja ("1/2 pálya - 1. kör"); a korosztály
+    // a körből jön. Csapatnevek nélkül: azokat a csapatNevekGeneral() tölti fel.
+    blokkok: [
+        { par: 'p1', kor: 1, szint: 'A', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p1', kor: 2, szint: 'A', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p1', kor: 3, szint: 'C', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p1', kor: 4, szint: 'C', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p2', kor: 1, szint: 'B', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p2', kor: 2, szint: 'B', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p2', kor: 3, szint: 'A', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p2', kor: 4, szint: 'B', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p3', kor: 1, szint: 'B', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p3', kor: 2, szint: 'C', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p3', kor: 3, szint: 'C', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p3', kor: 4, szint: 'C', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p4', kor: 1, szint: 'C', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p4', kor: 2, szint: 'C', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p4', kor: 3, szint: 'A', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p4', kor: 4, szint: 'B', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p5', kor: 3, szint: 'B', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p6', kor: 2, szint: 'C', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p6', kor: 3, szint: 'C', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p6', kor: 4, szint: 'C', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p7', kor: 1, szint: 'B', csapatszam: 6, sablon: '6cs_3m_2p_hosszu' },
+        { par: 'p7', kor: 3, szint: 'A', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p7', kor: 4, szint: 'B', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p8', kor: 1, szint: 'C', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p8', kor: 2, szint: 'C', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p8', kor: 3, szint: 'C', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p8', kor: 4, szint: 'C', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p9', kor: 2, szint: 'C', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p9', kor: 3, szint: 'B', csapatszam: 4, sablon: '4cs_3m_2p' },
+        { par: 'p9', kor: 4, szint: 'B', csapatszam: 4, sablon: '4cs_3m_2p' }
+    ]
+};
+
+// A sorsoló bevált sablonkészletéből, kettő sávra. Kulcs: csapatszám + meccsszám + párok/kör.
+// A '_hosszu' a tavalyi városligeti hatos: hat körön át fut, de ugyanúgy 3 meccs/csapat.
+const MENETREND_SABLONOK = {
+    '3cs_3m_1p':        [[[0, 1], null], [[2, 1], null], [[2, 0], null], [[0, 2], null], [[1, 0], null]],
+    '4cs_3m_2p':        [[[0, 1], [2, 3]], [[0, 2], [1, 3]], [[2, 1], [3, 0]]],
+    '4cs_4m_2p':        [[[0, 1], [2, 3]], [[0, 2], [1, 3]], [[2, 1], [3, 0]], [[1, 0], [3, 2]]],
+    '5cs_3m_2p':        [[[0, 1], [4, 2]], [[0, 2], [1, 3]], [[0, 3], [1, 4]], [[0, 4], [2, 3]]],
+    '5cs_4m_2p':        [[[0, 1], [3, 2]], [[0, 3], [1, 4]], [[2, 4], null], [[2, 0], [3, 1]], [[2, 1], [4, 3]], [[4, 0], null]],
+    '6cs_3m_2p':        [[[0, 1], [2, 3]], [[4, 5], [0, 3]], [[1, 4], [2, 5]], [[2, 4], [3, 1]], [[5, 0], null]],
+    '6cs_3m_2p_hosszu': [[[0, 1], null], [[0, 2], null], [[3, 2], [4, 1]], [[5, 1], [0, 3]], [[5, 4], null], [[5, 2], [4, 3]]],
+    '6cs_4m_2p':        [[[0, 2], [1, 4]], [[3, 5], [0, 4]], [[2, 5], [1, 3]], [[0, 3], [2, 4]], [[0, 5], [2, 1]], [[1, 5], [3, 4]]]
+};
+
+const SZINTEK = ['A', 'B', 'C'];
+const SZINT_SZIN = { A: '00B0F0', B: 'FFFF00', C: 'FF0000' };   // KÉK · SÁRGA · PIROS
+
+const masol = (o) => JSON.parse(JSON.stringify(o));
+
+// ✂️ ------------------------ 2. BLOKK: SEGÉDFÜGGVÉNYEK ------------------------ ✂️
+
+// A pálya nevének magyar toldaléka a szám végződése szerint: 3-as, 5-ös, 6-os, 8-as…
+// Ha a "szám" nem szám (Hori átírhatja), toldalék nélkül marad.
+const palyaNev = (szam) => {
+    const n = parseInt(szam, 10);
+    if (!(n > 0) || String(n) !== String(szam).trim()) return `${szam} pálya`;
+    const tizes = (n % 100 >= 10 && n % 100 <= 20) ? null : (n % 10 === 0 ? n % 100 : null);
+    const veg = tizes !== null ? tizes : n % 10;
+    const t = { 1: '-es', 2: '-es', 3: '-as', 4: '-es', 5: '-ös', 6: '-os', 7: '-es', 8: '-as', 9: '-es',
+                10: '-es', 20: '-as', 30: '-as', 40: '-es', 50: '-es', 60: '-as', 70: '-es', 80: '-as', 90: '-es' };
+    return `${n}${t[veg] || '-es'} pálya`;
+};
+
+const percbol = (t) => { const r = String(t).split(':'); return (+r[0]) * 60 + (+r[1] || 0); };
+const percre = (p) => `${Math.floor(p / 60)}:${String(p % 60).padStart(2, '0')}`;
+
+// Egy blokk sablonja: a legtöbb párt adó, még beférő. A választást felül lehet bírálni.
+const sablonValaszt = (csapatszam, meccsszam) => {
+    const jeloltek = Object.keys(MENETREND_SABLONOK).filter(k => {
+        const r = k.split('_');
+        return +r[0].replace('cs', '') === csapatszam && +r[1].replace('m', '') === meccsszam;
+    });
+    if (!jeloltek.length) return `${csapatszam}cs_${meccsszam}m_2p`;   // nincs ilyen: a hiba látszódjon
+    // a rövidebb (kevesebb kört foglaló) az alapértelmezett
+    return jeloltek.sort((a, b) => MENETREND_SABLONOK[a].length - MENETREND_SABLONOK[b].length)[0];
+};
+
+// A sablon köre index-párokat ad. A lapon viszont minden csapat KULCSOS hivatkozás:
+// {b: blokkindex, i: csapatindex}. Így a keresztcserével bekerült idegen csapat is feloldható.
+const korCsomagol = (kor, bidx) =>
+    kor.map(m => (m ? [{ b: bidx, i: m[0] }, { b: bidx, i: m[1] }] : null));
+
+// Egy meccs-elem csapatneve. EGY helyen dől el, hogy melyik blokkból jön a név:
+// a lap, a nyomtatás és az Excel-export mind ezt hívja.
+const csapatNevKi = (blokkok, t) => {
+    const b = t && blokkok[t.b];
+    return b ? (b.csapatok[t.i] || '') : '';
+};
+
+// Csapatcsere egy körön belül: a megadott indexpárok helyet cserélnek.
+// Bijekció, ezért csapat sosem kerülhet önmaga ellen; a meccsszám sem változik.
+const csereAlkalmaz = (kor, csere, bidx) => {
+    let ki = korCsomagol(kor, bidx);
+    if (!csere || !csere.length) return ki;
+    csere.forEach(par => {
+        const a = par[0], b = par[1];
+        const v = t => (t.b !== bidx ? t
+            : (t.i === a ? { b: bidx, i: b } : (t.i === b ? { b: bidx, i: a } : t)));
+        ki = ki.map(m => (m ? [v(m[0]), v(m[1])] : null));
+    });
+    return ki;
+};
+
+// KERESZTCSERE: két csapat EGYETLEN mérkőzés erejéig helyet cserél, akár két külön
+// blokk között is. A bejegyzés a korosztályra kerül:
+//     { a: {par, slot, pi, oi}, b: {par, slot, pi, oi} }    pályapár · slot · sáv · oldal
+// A végpont a HELY, nem a csapat -- így a cserék LÁNCOLHATÓK: ami az első csere után
+// odakerült, azt egy következő csere tovább viheti. A bejegyzések sorban futnak le.
+// Ha egy végpont nem található, a bejegyzés csendben kimarad: inkább az eredeti
+// sorsolás látszódjon, mint rossz név.
+const keresztHely = (sorok, veg) => {
+    for (let si = 0; si < sorok.length; si++) {
+        const s = sorok[si];
+        if (s.par !== veg.par || s.slot !== veg.slot) continue;
+        return s.meccsek[veg.pi] ? { si, pi: veg.pi, oi: veg.oi } : null;
+    }
+    return null;
+};
+
+// A jelölés (x) nem a cseréből jön, hanem az EREDMÉNYBŐL: csak az a cella kap jelet,
+// ami ténylegesen mást mutat, mint a sablon. Ha egy lánc visszahozza az eredeti
+// csapatot, a jelölés magától eltűnik.
+const keresztAlkalmaz = (sorok, kereszt) => {
+    if (!kereszt || !kereszt.length) return;
+    const alap = sorok.map(s => s.meccsek.map(m => (m ? [m[0].b + '#' + m[0].i, m[1].b + '#' + m[1].i] : null)));
+    kereszt.forEach(cs => {
+        const ha = keresztHely(sorok, cs.a), hb = keresztHely(sorok, cs.b);
+        if (!ha || !hb) return;
+        const ma = sorok[ha.si].meccsek[ha.pi], mb = sorok[hb.si].meccsek[hb.pi];
+        const tmp = ma[ha.oi];
+        ma[ha.oi] = { b: mb[hb.oi].b, i: mb[hb.oi].i };
+        mb[hb.oi] = { b: tmp.b, i: tmp.i };
+    });
+    sorok.forEach((s, si) => s.meccsek.forEach((m, pi) => {
+        if (!m || !alap[si][pi]) return;
+        [0, 1].forEach(oi => {
+            if (m[oi].b + '#' + m[oi].i !== alap[si][pi][oi]) m[oi] = { b: m[oi].b, i: m[oi].i, x: 1 };
+        });
+    }));
+};
+
+// A KÖRÖK levezetése: a korosztályok SORRENDJÉBEN, korosztályonként annyi kör,
+// ahány korMeccs-nyi mérkőzéshely elfér. A kör sorszáma végig fut (1., 2., 3., 4.),
+// a korosztály a körből jön -- ezért elég a korosztályok sorrendjét megcserélni
+// ahhoz, hogy az U10 kezdje a tornát.
+const korokLista = (korosztalyok, meccsDb, korMeccs) => {
+    const ki = [];
+    let szam = 1;
+    korosztalyok.forEach(k => {
+        const db = Math.max(1, Math.ceil(meccsDb / korMeccs));
+        for (let i = 0; i < db; i++) {
+            ki.push({ szam: szam++, korosztaly: k.nev, elsoMeccs: i * korMeccs });
+        }
+    });
+    return ki;
+};
+
+const korKeres = (korok, szam) => korok.find(k => k.szam === szam);
+
+// A GENERÁTOR: pályapárok + blokkok -> sorok[].
+// Egy sor = egy pályapár egy MÉRKŐZÉSHELYE. A párosítás nem tárolt adat, a sablonból jön.
+// Az idő nem láncolt (mint a nyitófesztiválnál), hanem FIX RÁCS: kezdés + n * hossz.
+const sorokGeneral = (kori, korok, parok, blokkok, kereszt, meccsDb) => {
+    const hossz = kori.jatekido + kori.atallas;
+    const sorok = [];
+    parok.forEach(par => {
+        for (let slot = 0; slot < meccsDb; slot++) {
+            sorok.push({
+                par: par.id, slot, korosztaly: kori.nev,
+                ido: percre(percbol(kori.kezdes) + slot * hossz),
+                blokk: -1, szint: '', meccsek: [null, null]
+            });
+        }
+    });
+    // A blokk a köre első mérkőzéshelyétől indul, és annyit foglal, ahány köre
+    // a sablonnak van. Egy 5-6 csapatos blokk így átnyúlik a következő körbe.
+    blokkok.forEach((bl, bidx) => {
+        const k = korKeres(korok, bl.kor);
+        if (!k || k.korosztaly !== kori.nev) return;
+        const sablon = MENETREND_SABLONOK[bl.sablon];
+        if (!sablon) return;
+        sablon.forEach((parosit, ki) => {
+            const s = sorok.find(x => x.par === bl.par && x.slot === k.elsoMeccs + ki);
+            if (!s) return;   // kilóg a rácsból: az ellenőrzés szól érte
+            s.blokk = bidx;
+            s.szint = bl.szint;
+            s.meccsek = csereAlkalmaz(parosit, bl.csere, bidx);
+            while (s.meccsek.length < 2) s.meccsek.push(null);
+        });
+    });
+    keresztAlkalmaz(sorok, kereszt);
+    return sorok;
+};
+
+// Egy sávban az EGYMÁS UTÁNI üres mérkőzéshelyek összevonása, hogy ne legyen
+// vízszintes vonal a semmiben. Visszaad: slot -> {kezdet: bool, hossz: n}
+const uresSpanok = (sorok, parId, savIdx, meccsDb, zart) => {
+    const ki = new Array(meccsDb).fill(null);
+    let i = 0;
+    while (i < meccsDb) {
+        const sor = sorok.find(s => s.par === parId && s.slot === i);
+        const ures = zart || !sor || !sor.meccsek[savIdx];
+        if (!ures) { i++; continue; }
+        let j = i;
+        while (j < meccsDb) {
+            const s2 = sorok.find(s => s.par === parId && s.slot === j);
+            if (!(zart || !s2 || !s2.meccsek[savIdx])) break;
+            j++;
+        }
+        ki[i] = { kezdet: true, hossz: j - i };
+        for (let k = i + 1; k < j; k++) ki[k] = { kezdet: false, hossz: 0 };
+        i = j;
+    }
+    return ki;
+};
+
+// Egy rácsban (felső vagy alsó) melyik pár melyik sávjai látszanak.
+// Az OSZTOTT pár felül az 1., alul a 2. sávját mutatja.
+const racsSavok = (par, racs) => {
+    if (par.hol === 'osztott') return racs === 'felso' ? [0] : [1];
+    return par.hol === racs ? [0, 1] : [];
+};
+
+// Egy sáv zárva van-e erre a korosztályra
+const savZart = (par, savIdx, korNev) => !!(par.zart && par.zart[korNev] && par.zart[korNev][savIdx]);
+
+// A lap doboz-rácsai: [{doboz, par, savok}] a felső és az alsó sorra
+const racsDobozok = (parok, racs) => {
+    const ki = [];
+    parok.forEach(par => {
+        const savok = racsSavok(par, racs);
+        if (savok.length) ki.push({ doboz: par.doboz, par, savok });
+    });
+    return ki.sort((a, b) => a.doboz - b.doboz);
+};
+
+// --- FORMÁZOTT EXCEL EXPORT (ExcelJS) ------------------------------------
+// A méretek a tavalyi Jégkorongnap_Városliget_TELJES.xlsx-ből származnak, nem becslés.
+const XLS_MERET = {
+    margo: 3.66, idoElso: 10.44, ido: 8.55, nev: 23.78, kotojel: 3.11,
+    elvalaszto: 1.66, terkoz: 4.33, sormagassag: 52, fejlecMagassag: 35
+};
+const XLS_BETU = { nev: 'Arial', adat: 13, fejlec: 20 };
+const vekony = { style: 'thin' }, kozepes = { style: 'medium' };
+
+const xlsFormazott = (lapok, blokkok, fejlec) => {
+    const wb = new ExcelJS.Workbook();
+
+    lapok.forEach(lap => {
+        const ws = wb.addWorksheet(lap.cim.substring(0, 28), {
+            pageSetup: {
+                paperSize: 8, orientation: 'landscape', scale: 37,
+                margins: { left: 0.3, right: 0.3, top: 0.3, bottom: 0.3, header: 0.2, footer: 0.2 }
+            }
+        });
+        // --- Oszlopkiosztás: margó + dobozonként (idő, név, -, név, elv, név, -, név, elv) + térköz
+        // A dobozszám a legszélesebb rácsból jön, hogy minden szakasz ugyanabba a rácsba illeszkedjen.
+        let dobozSzam = 1;
+        lap.szakaszok.forEach(sz => sz.racsok.forEach(r => { dobozSzam = Math.max(dobozSzam, r.dobozok.length); }));
+        const szelesseg = [XLS_MERET.margo];
+        const dobozOszlop = [];                    // dobozonként az első oszlop indexe (1-alapú)
+        for (let d = 0; d < dobozSzam; d++) {
+            dobozOszlop.push(szelesseg.length + 1);
+            szelesseg.push(d === 0 ? XLS_MERET.idoElso : XLS_MERET.ido);
+            szelesseg.push(XLS_MERET.nev, XLS_MERET.kotojel, XLS_MERET.nev, XLS_MERET.elvalaszto);
+            szelesseg.push(XLS_MERET.nev, XLS_MERET.kotojel, XLS_MERET.nev, XLS_MERET.elvalaszto);
+            szelesseg.push(XLS_MERET.terkoz);
+        }
+        ws.columns = szelesseg.map(w => ({ width: w }));
+        const oszlopDb = szelesseg.length;
+
+        let r = 1;
+        // --- Lapfejléc: dátum | korosztály | helyszín
+        const harmad = Math.max(1, Math.floor(oszlopDb / 3));
+        ws.mergeCells(r, 1, r, harmad);
+        ws.mergeCells(r, harmad + 1, r, harmad * 2);
+        ws.mergeCells(r, harmad * 2 + 1, r, oszlopDb);
+        [[1, `${fejlec.datum} ${fejlec.nap}`, 'left'], [harmad + 1, lap.cim, 'center'],
+         [harmad * 2 + 1, fejlec.hely, 'right']].forEach(([c, v, h]) => {
+            const cella = ws.getCell(r, c);
+            cella.value = v;
+            cella.font = { name: XLS_BETU.nev, size: XLS_BETU.fejlec, bold: true };
+            cella.alignment = { horizontal: h, vertical: 'middle' };
+        });
+        ws.getRow(r).height = XLS_MERET.fejlecMagassag;
+        r += 2;
+
+        lap.szakaszok.forEach(szakasz => {
+            szakasz.racsok.forEach(racs => {
+                if (!racs.dobozok.length) return;
+
+                // --- Pályafejléc dobozonként
+                racs.dobozok.forEach((dz, di) => {
+                    const o = dobozOszlop[di];
+                    const cKor = ws.getCell(r, o);
+                    cKor.value = szakasz.korNev;
+                    cKor.font = { name: XLS_BETU.nev, size: XLS_BETU.adat, bold: true };
+                    cKor.alignment = { horizontal: 'center', vertical: 'middle' };
+                    cKor.border = { top: kozepes, bottom: kozepes, left: kozepes, right: kozepes };
+                    dz.savok.forEach((sv, k) => {
+                        const oo = o + 1 + k * 4;
+                        ws.mergeCells(r, oo, r, oo + 2);
+                        const c = ws.getCell(r, oo);
+                        c.value = palyaNev(dz.par.savok[sv].szam);
+                        c.font = { name: XLS_BETU.nev, size: XLS_BETU.adat, bold: true };
+                        c.alignment = { horizontal: 'center', vertical: 'middle' };
+                        c.border = { top: kozepes, bottom: kozepes, left: kozepes, right: kozepes };
+                    });
+                });
+                ws.getRow(r).height = XLS_MERET.sormagassag;
+                r++;
+
+                // --- Mérkőzés sorok. Az üres helyeket sávonként FÜGGŐLEGESEN összevonjuk,
+                //     hogy ne legyen vízszintes vonal a semmiben (tavaly is így volt).
+                const elsoSor = r;
+                const spanok = racs.dobozok.map(dz => dz.savok.map(sv =>
+                    uresSpanok(szakasz.sorok, dz.par.id, sv, szakasz.meccsDb,
+                        savZart(dz.par, sv, szakasz.korNev))));
+                for (let slot = 0; slot < szakasz.meccsDb; slot++) {
+                    racs.dobozok.forEach((dz, di) => {
+                        const o = dobozOszlop[di];
+                        const sor = szakasz.sorok.find(s => s.par === dz.par.id && s.slot === slot);
+                        const cIdo = ws.getCell(r, o);
+                        cIdo.value = sor ? sor.ido : '';
+                        cIdo.font = { name: XLS_BETU.nev, size: XLS_BETU.adat, bold: true };
+                        cIdo.alignment = { horizontal: 'center', vertical: 'middle' };
+                        cIdo.border = { top: vekony, bottom: vekony, left: kozepes, right: kozepes };
+                        // szintszín az időcellán (KÉK = A, SÁRGA = B, PIROS = C)
+                        const sz = sor && sor.szint && SZINT_SZIN[sor.szint];
+                        if (sz) cIdo.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + sz } };
+
+                        dz.savok.forEach((sv, k) => {
+                            const oo = o + 1 + k * 4;
+                            const sp = spanok[di][k][slot];
+                            const cElv = ws.getCell(r, oo + 3);
+                            cElv.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF9CA3AF' } };
+                            cElv.border = { left: vekony, right: vekony };
+                            if (sp && !sp.kezdet) return;            // összevont üres blokk belseje
+                            if (sp && sp.kezdet) {
+                                // Előbb a stílus, aztán az összevonás -- fordítva a tartalom vész el.
+                                for (let c = oo; c <= oo + 2; c++) {
+                                    const cc = ws.getCell(r, c);
+                                    cc.border = { left: (c === oo ? vekony : undefined), right: (c === oo + 2 ? vekony : undefined) };
+                                }
+                                ws.mergeCells(r, oo, r + sp.hossz - 1, oo + 2);
+                                return;
+                            }
+                            const m = sor.meccsek[sv];
+                            [[oo, csapatNevKi(blokkok, m[0])], [oo + 1, '-'], [oo + 2, csapatNevKi(blokkok, m[1])]]
+                                .forEach(([c, v]) => {
+                                    const cella = ws.getCell(r, c);
+                                    cella.value = v;
+                                    cella.font = { name: XLS_BETU.nev, size: XLS_BETU.adat, bold: true };
+                                    cella.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+                                    cella.border = { top: vekony, bottom: vekony, left: vekony, right: vekony };
+                                });
+                        });
+                    });
+                    ws.getRow(r).height = XLS_MERET.sormagassag;
+                    r++;
+                }
+
+                // --- "Torna zárása" sor
+                racs.dobozok.forEach((dz, di) => {
+                    const o = dobozOszlop[di];
+                    const cIdo = ws.getCell(r, o);
+                    cIdo.value = szakasz.zaroIdo;
+                    cIdo.font = { name: XLS_BETU.nev, size: XLS_BETU.adat, bold: true };
+                    cIdo.alignment = { horizontal: 'center', vertical: 'middle' };
+                    cIdo.border = { top: vekony, bottom: kozepes, left: kozepes, right: kozepes };
+                    const szeles = dz.savok.length * 4 - 1;
+                    // Előbb a stílus, aztán az összevonás, végül az érték -- különben
+                    // az összevont cella "rejtett" felébe írva a fő cella tartalma vész el.
+                    for (let c = o + 1; c <= o + szeles; c++) {
+                        const cc = ws.getCell(r, c);
+                        cc.font = { name: XLS_BETU.nev, size: XLS_BETU.adat, bold: true };
+                        cc.alignment = { horizontal: 'center', vertical: 'middle' };
+                        cc.border = { top: vekony, bottom: kozepes, left: vekony, right: vekony };
+                    }
+                    ws.mergeCells(r, o + 1, r, o + szeles);
+                    ws.getCell(r, o + 1).value = 'Torna zárása';
+                });
+                ws.getRow(r).height = XLS_MERET.sormagassag;
+                r += 2;
+            });
+        });
+    });
+    return wb;
+};
+
+// ✂️ ------------------------ 3. BLOKK: EGY NYOMTATHATÓ LAP ------------------------ ✂️
+
+// Csapatnév cella: amíg sima sortöréssel két sorba befér, marad az alapméret.
+// Ha nem fér, fél pixelenként csökken. Így a "KSI" és a
+// "Szigeti Bikák Pesterzsébet" is elfér ugyanabban a cellában.
+const NevCella = ({ nev, alap }) => {
+    const ref = useRef(null);
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const maxMagassag = Math.ceil(alap * 1.1 * 2) + 1;   // két sor az alapméreten
+        let meret = alap, vedelem = 0;
+        el.style.fontSize = meret + 'px';
+        while (vedelem++ < 24 && meret > 5 &&
+            (el.scrollHeight > maxMagassag || el.scrollWidth > el.clientWidth + 1)) {
+            meret -= 0.5;
+            el.style.fontSize = meret + 'px';
+        }
+    }, [nev, alap]);
+    return <span ref={ref} className="nevszoveg">{nev}</span>;
+};
+
+// Egy DOBOZ = egy pályapár táblázata: időoszlop + egy vagy két sáv.
+const Doboz = ({ dz, szakasz, blokkok, szerkesztheto, meccsKijelolt, nevreKattint, palyaSzamAllit }) => {
+    const savok = dz.savok;
+    const alapNevMeret = szerkesztheto ? 10.5 : 13;
+    // Az egymás utáni üres mérkőzéshelyek egy cellába vonódnak, hogy ne legyen
+    // vízszintes vonal a semmiben -- a zárt pálya így egyetlen üres mező lesz.
+    const spanok = useMemo(() => savok.map(sv =>
+        uresSpanok(szakasz.sorok, dz.par.id, sv, szakasz.meccsDb,
+            savZart(dz.par, sv, szakasz.korNev))),
+        [szakasz.sorok, dz.par, savok, szakasz.meccsDb, szakasz.korNev]);
+
+    const nev = (m) => {
+        if (!blokkok[m.b]) return '???';
+        return csapatNevKi(blokkok, m) || '—';
+    };
+    // Csapatnév cella osztálya: szerkesztésnél kattintható, kijelölve zöld,
+    // keresztcserével áthozott csapat borostyán
+    const nevOsztaly = (sor, m, pi, oi) => 'nevcella'
+        + (szerkesztheto ? ' valaszthato' : '')
+        + (m.x ? ' cserelt' : '')
+        + (meccsKijelolt && meccsKijelolt.kor === szakasz.korNev && meccsKijelolt.par === sor.par
+            && meccsKijelolt.slot === sor.slot && meccsKijelolt.pi === pi
+            && meccsKijelolt.oi === oi ? ' kijelolt' : '');
+
+    return (
+        <table className={`mtabla${szerkesztheto ? ' szerk' : ''}`}>
+            {/* Az oszlopszélességet a colgroup adja. Fejlécből nem lehet, mert a
+                pályanevek colSpan={3} cellák, és azt a böngésző három egyenlő részre osztaná. */}
+            <colgroup>
+                <col style={{ width: szerkesztheto ? '34px' : '46px' }} />
+                {savok.map((sv, k) => (
+                    <React.Fragment key={k}>
+                        <col style={{ width: szerkesztheto ? '78px' : '104px' }} />
+                        <col style={{ width: '12px' }} />
+                        <col style={{ width: szerkesztheto ? '78px' : '104px' }} />
+                        <col style={{ width: '6px' }} />
+                    </React.Fragment>
+                ))}
+            </colgroup>
+            <thead>
+                <tr className="bg-slate-100">
+                    <th>{szakasz.korNev}</th>
+                    {savok.map((sv, k) => (
+                        <React.Fragment key={k}>
+                            <th colSpan={3}>
+                                {szerkesztheto
+                                    ? <input className="fejlecinput text-center" value={dz.par.savok[sv].szam}
+                                        style={{ fontSize: 'inherit', fontWeight: 'inherit' }}
+                                        onChange={e => palyaSzamAllit(dz.par.id, sv, e.target.value)} />
+                                    : palyaNev(dz.par.savok[sv].szam)}
+                            </th>
+                            <th className="elvalaszto"></th>
+                        </React.Fragment>
+                    ))}
+                </tr>
+            </thead>
+            <tbody>
+                {Array.from({ length: szakasz.meccsDb }, (_, slot) => {
+                    const sor = szakasz.sorok.find(s => s.par === dz.par.id && s.slot === slot);
+                    return (
+                        <tr key={slot}>
+                            <td className={`idocella${sor && sor.szint ? ' szint-' + sor.szint : ''}`}>
+                                {sor ? sor.ido : ''}
+                            </td>
+                            {savok.map((sv, k) => {
+                                const sp = spanok[k][slot];
+                                const m = sp ? null : sor.meccsek[sv];
+                                return (
+                                    <React.Fragment key={k}>
+                                        {sp
+                                            ? (sp.kezdet
+                                                ? <td colSpan={3} rowSpan={sp.hossz} className="uresvezet"></td>
+                                                : null)
+                                            : <>
+                                                <td className={nevOsztaly(sor, m[0], sv, 0)}
+                                                    onClick={szerkesztheto ? () => nevreKattint(szakasz.korNev, sor, sv, 0) : undefined}
+                                                    title={szerkesztheto ? 'Csere: kattints erre, majd a másik csapatra (a cserélt csapat tovább cserélhető)' : undefined}>
+                                                    <NevCella nev={nev(m[0])} alap={alapNevMeret} />
+                                                </td>
+                                                <td className="kotojel">-</td>
+                                                <td className={nevOsztaly(sor, m[1], sv, 1)}
+                                                    onClick={szerkesztheto ? () => nevreKattint(szakasz.korNev, sor, sv, 1) : undefined}
+                                                    title={szerkesztheto ? 'Csere: kattints erre, majd a másik csapatra (a cserélt csapat tovább cserélhető)' : undefined}>
+                                                    <NevCella nev={nev(m[1])} alap={alapNevMeret} />
+                                                </td>
+                                            </>}
+                                        <td className="elvalaszto"></td>
+                                    </React.Fragment>
+                                );
+                            })}
+                        </tr>
+                    );
+                })}
+                <tr>
+                    <td className="idocella">{szakasz.zaroIdo}</td>
+                    {/* A colgroup sávonként NÉGY oszlopot ad (név, -, név, elválasztó),
+                        ezért a záró elválasztó cella mindig kell, egy sávnál is. */}
+                    <td className="zarassor" colSpan={savok.length * 4 - 1}>Torna zárása</td>
+                    <td className="elvalaszto"></td>
+                </tr>
+            </tbody>
+        </table>
+    );
+};
+
+// Egy nyomtatható lap: fejléc + felső rács + alsó rács
+const Lap = ({ lap, blokkok, fejlec, szerkesztheto, fejlecMezo, ...tovabb }) => (
+    <div className="lap bg-white shadow-xl mx-auto mb-8 p-4" style={{ width: '408mm' }}>
+        <div className="grid grid-cols-3 items-center border-b-2 border-black pb-2 mb-3 lapfejlec">
+            <div>
+                {szerkesztheto
+                    ? <>
+                        <input className="fejlecinput" value={fejlec.datum} onChange={e => fejlecMezo('datum', e.target.value)} />
+                        <input className="fejlecinput" value={fejlec.nap} onChange={e => fejlecMezo('nap', e.target.value)} />
+                    </>
+                    : <>{fejlec.datum}<br />{fejlec.nap}</>}
+            </div>
+            <div className="text-center">{lap.cim}</div>
+            <div className="text-right">
+                {szerkesztheto
+                    ? <input className="fejlecinput text-right" value={fejlec.hely} onChange={e => fejlecMezo('hely', e.target.value)} />
+                    : fejlec.hely}
+            </div>
+        </div>
+        {lap.szakaszok.map((szakasz, szi) => (
+            <div key={szi} className="mb-5">
+                {szakasz.racsok.map((racs, ri) => (
+                    <div key={ri} className="flex gap-3 mb-3 items-start">
+                        {racs.dobozok.map((dz, di) => (
+                            <Doboz key={di} dz={dz} szakasz={szakasz} blokkok={blokkok}
+                                szerkesztheto={szerkesztheto} {...tovabb} />
+                        ))}
+                    </div>
+                ))}
+            </div>
+        ))}
+    </div>
+);
+
+// ✂️ ------------------------ 4. BLOKK: SZERKESZTŐ KÁRTYÁK ------------------------ ✂️
+
+// Egy blokk kártyája: szint, csapatszám, sablon, slot, és a csapatnevek.
+const BlokkKartya = ({ bidx, blokk, par, korok, frissit, mezoAllit, torol, kivalasztott, setKivalasztott, csere, meccsDb }) => {
+    const [nyitva, setNyitva] = useState(false);
+    const [beillesztes, setBeillesztes] = useState('');
+    const sablon = MENETREND_SABLONOK[blokk.sablon];
+    const meccsHely = sablon ? sablon.length : 0;
+    const k = korKeres(korok, blokk.kor);
+    const kilog = !k || k.elsoMeccs + meccsHely > meccsDb;
+
+    const nevFrissit = (i, ertek) => {
+        const uj = [...blokk.csapatok];
+        uj[i] = ertek;
+        frissit(bidx, uj);
+    };
+    const beillesztesAlkalmaz = () => {
+        const sorok = beillesztes.split('\n').map(s => s.trim()).filter(s => s);
+        const uj = [...blokk.csapatok];
+        sorok.forEach((nev, i) => { if (i < uj.length) uj[i] = nev; });
+        frissit(bidx, uj);
+        setBeillesztes('');
+    };
+    const kattint = (idx) => {
+        if (!kivalasztott) { setKivalasztott({ bidx, idx }); return; }
+        if (kivalasztott.bidx === bidx && kivalasztott.idx === idx) { setKivalasztott(null); return; }
+        csere(kivalasztott, { bidx, idx });
+        setKivalasztott(null);
+    };
+
+    const hianyzo = blokk.csapatok.filter(c => !c).length;
+    const valaszto = "bg-slate-700 rounded p-1 text-[11px]";
+    const szinPont = { A: 'bg-sky-400', B: 'bg-yellow-400', C: 'bg-red-500' }[blokk.szint] || 'bg-slate-500';
+
+    return (
+        <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+            <button onClick={() => setNyitva(!nyitva)}
+                className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-slate-700 text-left">
+                <span className={`w-3 h-3 rounded-full shrink-0 ${szinPont}`}></span>
+                <span className="font-bold text-[11px] flex-1">
+                    {par ? par.savok.map(s => s.szam).join('/') : '???'} pálya · {blokk.kor}. kör
+                    <span className="text-slate-400"> ({k ? k.korosztaly : '?'})</span>
+                </span>
+                {(hianyzo > 0 || kilog || !sablon) &&
+                    <span className="text-red-400 text-[10px] font-bold">
+                        {!sablon ? 'nincs sablon' : (kilog ? 'kilóg' : hianyzo + ' üres')}
+                    </span>}
+                <span className="text-slate-400 text-[10px]">{nyitva ? '▲' : '▼'}</span>
+            </button>
+
+            {nyitva && (
+                <div className="p-2 space-y-2 border-t border-slate-700">
+                    <div className="grid grid-cols-2 gap-1 text-[10px]">
+                        <label className="flex items-center gap-1">
+                            <span className="text-slate-400 w-12">szint</span>
+                            <select value={blokk.szint} onChange={e => mezoAllit(bidx, 'szint', e.target.value)}
+                                className={valaszto + ' flex-1'}>
+                                {SZINTEK.map(sz => <option key={sz} value={sz}>{sz}</option>)}
+                            </select>
+                        </label>
+                        <label className="flex items-center gap-1">
+                            <span className="text-slate-400 w-12">kör</span>
+                            <select value={blokk.kor} onChange={e => mezoAllit(bidx, 'kor', +e.target.value)}
+                                className={valaszto + ' flex-1'}>
+                                {korok.map(kk => <option key={kk.szam} value={kk.szam}>{kk.szam}. ({kk.korosztaly})</option>)}
+                            </select>
+                        </label>
+                        <label className="flex items-center gap-1">
+                            <span className="text-slate-400 w-12">csapat</span>
+                            <input type="number" min="3" max="8" value={blokk.csapatszam}
+                                onChange={e => mezoAllit(bidx, 'csapatszam', parseInt(e.target.value, 10) || 4)}
+                                className={valaszto + ' flex-1 w-full'} />
+                        </label>
+                        <div className="flex items-center gap-1 text-slate-400">
+                            <span className="w-12">mérkőzés</span>
+                            <span className="flex-1 bg-slate-900 rounded p-1">
+                                {k ? `${k.elsoMeccs + 1}–${k.elsoMeccs + meccsHely}.` : '—'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <label className="flex items-center gap-1 text-[10px]">
+                        <span className="text-slate-400 w-12 shrink-0">sablon</span>
+                        <select value={blokk.sablon} onChange={e => mezoAllit(bidx, 'sablon', e.target.value)}
+                            className={valaszto + ' flex-1'}>
+                            {Object.keys(MENETREND_SABLONOK)
+                                .filter(nv => +nv.split('_')[0].replace('cs', '') === blokk.csapatszam)
+                                .map(nv => <option key={nv} value={nv}>{nv} ({MENETREND_SABLONOK[nv].length} mérkőzés)</option>)}
+                            {!MENETREND_SABLONOK[blokk.sablon] && <option value={blokk.sablon}>{blokk.sablon} — NINCS ILYEN</option>}
+                        </select>
+                    </label>
+
+                    <div className="space-y-1">
+                        {blokk.csapatok.map((nev, i) => {
+                            const kijelolve = kivalasztott && kivalasztott.bidx === bidx && kivalasztott.idx === i;
+                            return (
+                                <div key={i} className="flex items-center gap-1">
+                                    <button onClick={() => kattint(i)} title="Csere: kattints erre, majd a párjára"
+                                        className={`w-6 h-6 shrink-0 rounded text-[10px] font-black transition ${kijelolve ? 'bg-emerald-500 text-white ring-2 ring-emerald-300' : 'bg-slate-600 hover:bg-slate-500'}`}>
+                                        {i + 1}
+                                    </button>
+                                    <input value={nev} onChange={e => nevFrissit(i, e.target.value)}
+                                        className={`w-full p-1 rounded text-xs ${!nev ? 'bg-red-900/60 border border-red-600' : 'bg-slate-700'}`} />
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <textarea value={beillesztes} onChange={e => setBeillesztes(e.target.value)}
+                        placeholder="Excelből ide illesztheted a csapatneveket (soronként egyet)…"
+                        className="w-full bg-slate-900 rounded p-1 text-[10px] h-14 border border-slate-700" />
+                    <div className="flex gap-1">
+                        <button onClick={beillesztesAlkalmaz} disabled={!beillesztes.trim()}
+                            className="flex-1 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-30 rounded py-1 text-[10px] font-bold">
+                            Nevek beillesztése
+                        </button>
+                        <button onClick={() => torol(bidx)}
+                            className="bg-red-900/60 hover:bg-red-800 rounded py-1 px-2 text-[10px] font-bold border border-red-700">
+                            Blokk törlése
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// Pályakezelő: pályaszámok átírása és sávok zárása korosztályonként
+const PalyaKartya = ({ parok, palyaSzamAllit, zarAllit, parTorol, parHozzaad }) => {
+    const [nyitva, setNyitva] = useState(false);
+    return (
+        <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+            <button onClick={() => setNyitva(!nyitva)}
+                className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-slate-700">
+                <span className="font-bold text-[11px]">⛸ PÁLYÁK ({parok.length} pár)</span>
+                <span className="text-slate-400 text-[10px]">{nyitva ? '▲' : '▼'}</span>
+            </button>
+            {nyitva && (
+                <div className="p-2 space-y-1 border-t border-slate-700">
+                    <div className="grid grid-cols-[1fr_auto_auto] gap-1 text-[9px] text-slate-400 px-1">
+                        <span>pályák</span><span>U8</span><span>U10</span>
+                    </div>
+                    {parok.map(par => (
+                        <div key={par.id} className="grid grid-cols-[1fr_auto_auto] gap-1 items-center">
+                            <div className="flex gap-1 items-center">
+                                {par.savok.map((sv, k) => (
+                                    <input key={k} value={sv.szam} onChange={e => palyaSzamAllit(par.id, k, e.target.value)}
+                                        className="w-9 bg-slate-700 rounded p-0.5 text-[10px] text-center" />
+                                ))}
+                                <span className="text-[9px] text-slate-500">
+                                    {par.hol === 'osztott' ? 'fent+lent' : (par.hol === 'felso' ? 'fent' : 'lent')}
+                                </span>
+                            </div>
+                            {ADAT.korosztalyok.map(k => (
+                                <div key={k.nev} className="flex gap-0.5">
+                                    {par.savok.map((sv, si) => (
+                                        <button key={si} onClick={() => zarAllit(par.id, si, k.nev)}
+                                            title={`${sv.szam}-es pálya ${k.nev}: ${savZart(par, si, k.nev) ? 'zárva' : 'nyitva'}`}
+                                            className={`w-5 h-5 rounded text-[9px] font-bold ${savZart(par, si, k.nev)
+                                                ? 'bg-red-900 text-red-300 border border-red-700' : 'bg-slate-600 hover:bg-slate-500'}`}>
+                                            {savZart(par, si, k.nev) ? '✕' : sv.szam}
+                                        </button>
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                    ))}
+                    <div className="flex gap-1 pt-1">
+                        <button onClick={parHozzaad}
+                            className="flex-1 bg-slate-700 hover:bg-slate-600 rounded py-1 text-[10px] font-bold">
+                            + Pályapár
+                        </button>
+                        <button onClick={parTorol} disabled={parok.length <= 1}
+                            className="flex-1 bg-red-900/60 hover:bg-red-800 disabled:opacity-30 rounded py-1 text-[10px] font-bold border border-red-700">
+                            – Utolsó pár
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// Új blokk felvétele
+const UjBlokk = ({ parok, korok, hozzaad }) => {
+    const [nyitva, setNyitva] = useState(false);
+    const [par, setPar] = useState(parok[0] ? parok[0].id : '');
+    const [kor, setKor] = useState(1);
+    const [szint, setSzint] = useState('A');
+    const [csapatszam, setCsapatszam] = useState(4);
+    const valaszto = "bg-slate-700 rounded p-1 text-[11px] flex-1";
+    return (
+        <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+            <button onClick={() => setNyitva(!nyitva)}
+                className="w-full px-2 py-1.5 hover:bg-slate-700 font-bold text-[11px] text-emerald-400 text-left">
+                ➕ ÚJ BLOKK
+            </button>
+            {nyitva && (
+                <div className="p-2 space-y-1 border-t border-slate-700 text-[10px]">
+                    <div className="flex gap-1">
+                        <select value={par} onChange={e => setPar(e.target.value)} className={valaszto}>
+                            {parok.map(p => <option key={p.id} value={p.id}>{p.savok.map(s => s.szam).join('/')}</option>)}
+                        </select>
+                        <select value={kor} onChange={e => setKor(+e.target.value)} className={valaszto}>
+                            {korok.map(kk => <option key={kk.szam} value={kk.szam}>{kk.szam}. kör ({kk.korosztaly})</option>)}
+                        </select>
+                        <select value={szint} onChange={e => setSzint(e.target.value)} className={valaszto}>
+                            {SZINTEK.map(sz => <option key={sz} value={sz}>{sz}</option>)}
+                        </select>
+                    </div>
+                    <div className="flex gap-1">
+                        <input type="number" min="3" max="8" value={csapatszam}
+                            onChange={e => setCsapatszam(parseInt(e.target.value, 10) || 4)}
+                            className={valaszto} placeholder="csapat" />
+                    </div>
+                    <button onClick={() => { hozzaad(par, kor, szint, csapatszam); setNyitva(false); }}
+                        className="w-full bg-emerald-700 hover:bg-emerald-600 rounded py-1 font-bold">
+                        Hozzáadás
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ✂️ ------------------------ 5. BLOKK: FŐ ALKALMAZÁS ------------------------ ✂️
+
+// Csapatnevek generálása: korosztály + szint szerint folyamatosan számozva
+const csapatNevekGeneral = (blokkok, korok) => {
+    const szamlalo = {};
+    return blokkok.map(bl => {
+        const k = korKeres(korok, bl.kor);
+        const elotag = `${k ? k.korosztaly : '?'} ${bl.szint}`;
+        const csapatok = [];
+        for (let i = 0; i < bl.csapatszam; i++) {
+            szamlalo[elotag] = (szamlalo[elotag] || 0) + 1;
+            csapatok.push(`${elotag} CSAPAT${szamlalo[elotag]}`);
+        }
+        return { ...bl, csapatok };
+    });
+};
+
+const MenetrendApp = () => {
+    const [fejlec, setFejlec] = useState(() => masol(ADAT.fejlec));
+    const [korosztalyok, setKorosztalyok] = useState(() => masol(ADAT.korosztalyok));
+    const [meccsDb, setMeccsDb] = useState(ADAT.meccsDb);
+    const [korMeccs, setKorMeccs] = useState(ADAT.korMeccs);
+    const [parok, setParok] = useState(() => masol(ADAT.parok));
+    const [blokkok, setBlokkok] = useState(() =>
+        csapatNevekGeneral(masol(ADAT.blokkok), korokLista(ADAT.korosztalyok, ADAT.meccsDb, ADAT.korMeccs)));
+    const [kereszt, setKereszt] = useState({});          // korosztályonként a keresztcserék
+    const [szerkesztheto, setSzerkesztheto] = useState(false);
+    const [kivalasztott, setKivalasztott] = useState(null);
+    const [meccsKijelolt, setMeccsKijelolt] = useState(null);
+    const [kulonLapra, setKulonLapra] = useState(false);
+    const [nyomtatKorok, setNyomtatKorok] = useState(() => ADAT.korosztalyok.map(k => k.nev));
+
+    // Esc: a folyamatban lévő kijelölés elengedése
+    useEffect(() => {
+        const le = (ev) => {
+            if (ev.key !== 'Escape') return;
+            setMeccsKijelolt(null);
+            setKivalasztott(null);
+        };
+        window.addEventListener('keydown', le);
+        return () => window.removeEventListener('keydown', le);
+    }, []);
+
+    const parKeres = (id) => parok.find(p => p.id === id);
+
+    // A KÖRÖK a korosztályok sorrendjéből adódnak: az elöl álló korosztály kezd.
+    const korok = useMemo(() => korokLista(korosztalyok, meccsDb, korMeccs),
+        [korosztalyok, meccsDb, korMeccs]);
+
+    // --- A menetrend GENERÁLT adat: pályák + blokkok -> sorok[] korosztályonként
+    const szakaszok = useMemo(() => korosztalyok.map(kori => {
+        const sorok = sorokGeneral(kori, korok, parok, blokkok, kereszt[kori.nev], meccsDb);
+        return {
+            korNev: kori.nev, meccsDb,
+            zaroIdo: percre(percbol(kori.kezdes) + meccsDb * (kori.jatekido + kori.atallas)),
+            sorok,
+            racsok: ['felso', 'also'].map(hol => ({ hol, dobozok: racsDobozok(parok, hol) }))
+        };
+    }), [korosztalyok, korok, parok, blokkok, kereszt, meccsDb]);
+
+    // --- A ténylegesen megjelenő lapok
+    const lapok = useMemo(() => {
+        const valasztott = szakaszok.filter(sz => nyomtatKorok.indexOf(sz.korNev) >= 0);
+        if (!valasztott.length) return [];
+        if (kulonLapra) return valasztott.map(sz => ({ cim: sz.korNev, szakaszok: [sz] }));
+        return [{ cim: valasztott.map(sz => sz.korNev).join(' – '), szakaszok: valasztott }];
+    }, [szakaszok, nyomtatKorok, kulonLapra]);
+
+    // --- Blokkok szerkesztése ---
+    const blokkFrissit = (bidx, csapatok) =>
+        setBlokkok(prev => prev.map((b, i) => (i === bidx ? { ...b, csapatok } : b)));
+
+    const blokkMezo = (bidx, mezo, ertek) => {
+        setBlokkok(prev => {
+            const uj = masol(prev);
+            const b = uj[bidx];
+            if (!b) return prev;
+            b[mezo] = ertek;
+            if (mezo === 'csapatszam') {
+                const kk = korKeres(korok, b.kor);
+                const elotag = `${kk ? kk.korosztaly : '?'} ${b.szint}`;
+                let n = 1;
+                while (b.csapatok.length > ertek) b.csapatok.pop();
+                while (b.csapatok.length < ertek) b.csapatok.push(`${elotag} ÚJ${n++}`);
+                b.sablon = sablonValaszt(ertek, 3);
+            }
+            return uj;
+        });
+    };
+
+    const blokkTorol = (bidx) => {
+        if (!confirm('Törlöd ezt a blokkot? A csapatnevei is elvesznek.')) return;
+        // A cserék HELYRE hivatkoznak, nem blokkindexre: a törölt blokk helyére eső
+        // bejegyzés magától kimarad, a többi csere érintetlen marad.
+        setBlokkok(prev => prev.filter((b, i) => i !== bidx));
+    };
+
+    const blokkHozzaad = (par, kor, szint, csapatszam) => {
+        const sablon = sablonValaszt(csapatszam, 3);
+        const kk = korKeres(korok, kor);
+        const elotag = `${kk ? kk.korosztaly : '?'} ${szint}`;
+        const csapatok = Array.from({ length: csapatszam }, (_, i) => `${elotag} ÚJ${i + 1}`);
+        setBlokkok(prev => prev.concat([{ par, kor, szint, csapatszam, sablon, csapatok }]));
+    };
+
+    // A korosztályok SORRENDJE a torna sorrendje -- ezzel fordítható meg, ki kezd
+    const korosztalySorrend = () => setKorosztalyok(prev => [...prev].reverse());
+
+    // Két csapat helyet cserél a csapatlistában (akár blokkok között is)
+    const csere = (a, b) => {
+        setBlokkok(prev => {
+            const uj = masol(prev);
+            const tmp = uj[a.bidx].csapatok[a.idx];
+            uj[a.bidx].csapatok[a.idx] = uj[b.bidx].csapatok[b.idx];
+            uj[b.bidx].csapatok[b.idx] = tmp;
+            return uj;
+        });
+    };
+
+    // --- Pályák ---
+    const palyaSzamAllit = (parId, savIdx, ertek) => {
+        setParok(prev => prev.map(p => (p.id !== parId ? p
+            : { ...p, savok: p.savok.map((s, i) => (i === savIdx ? { ...s, szam: ertek } : s)) })));
+    };
+
+    const zarAllit = (parId, savIdx, korNev) => {
+        setParok(prev => masol(prev).map(p => {
+            if (p.id !== parId) return p;
+            p.zart = p.zart || {};
+            p.zart[korNev] = p.zart[korNev] || [false, false];
+            p.zart[korNev][savIdx] = !p.zart[korNev][savIdx];
+            return p;
+        }));
+    };
+
+    const parHozzaad = () => {
+        setParok(prev => {
+            const maxDoboz = Math.max(...prev.map(p => p.doboz));
+            const felsoDb = prev.filter(p => p.doboz === maxDoboz && p.hol === 'felso').length;
+            const doboz = felsoDb ? maxDoboz + 1 : maxDoboz;
+            const legnagyobb = Math.max(...prev.map(p => Math.max(...p.savok.map(s => +s.szam || 0))));
+            return prev.concat([{
+                id: 'p' + (Date.now() % 100000), doboz, hol: felsoDb ? 'felso' : 'also',
+                savok: [{ szam: String(legnagyobb + 1) }, { szam: String(legnagyobb + 2) }]
+            }]);
+        });
+    };
+
+    const parTorol = () => {
+        const utolso = parok[parok.length - 1];
+        if (blokkok.some(b => b.par === utolso.id)) {
+            alert('Ezen a pályapáron még van blokk — előbb azt töröld.');
+            return;
+        }
+        setParok(prev => prev.slice(0, -1));
+    };
+
+    // --- Csere a lapon ---
+    // Első kattintás kijelöl, a második cserél. A már cserélt csapat TOVÁBB cserélhető:
+    // a cserék láncolhatók. Visszavonás: a bal oldali listában a ↺ gomb.
+    // Korlát: azonos korosztály és azonos szint.
+    const nevreKattint = (korNev, sor, pi, oi) => {
+        const m = sor.meccsek[pi][oi];
+        const en = { kor: korNev, par: sor.par, slot: sor.slot, pi, oi, b: m.b, i: m.i };
+        if (!meccsKijelolt) { setMeccsKijelolt(en); return; }
+        const k = meccsKijelolt;
+        if (k.kor === korNev && k.par === sor.par && k.slot === sor.slot && k.pi === pi && k.oi === oi) {
+            setMeccsKijelolt(null); return;                       // ugyanaz a cella: elengedjük
+        }
+        if (k.kor !== korNev) { setMeccsKijelolt(en); return; }    // másik korosztály: új kijelölés
+        if (k.b === m.b && k.i === m.i) { setMeccsKijelolt(null); return; }   // ugyanaz a csapat
+        const A = blokkok[k.b], B = blokkok[m.b];
+        if (!A || !B || A.szint !== B.szint) { setMeccsKijelolt(en); return; }  // eltérő szint: NEM cserélünk
+        keresztCsere(korNev, k, en);
+        setMeccsKijelolt(null);
+    };
+
+    const keresztCsere = (korNev, a, b) => {
+        setKereszt(prev => {
+            const uj = masol(prev);
+            uj[korNev] = (uj[korNev] || []).concat([{
+                a: { par: a.par, slot: a.slot, pi: a.pi, oi: a.oi },
+                b: { par: b.par, slot: b.slot, pi: b.pi, oi: b.oi }
+            }]);
+            return uj;
+        });
+    };
+
+    const keresztTorol = (korNev, idx) => {
+        setKereszt(prev => {
+            const uj = masol(prev);
+            if (!uj[korNev]) return prev;
+            uj[korNev] = uj[korNev].filter((c, i) => i !== idx);
+            if (!uj[korNev].length) delete uj[korNev];
+            return uj;
+        });
+    };
+
+    // --- Ellenőrzések ---
+    const figyelmeztetesek = useMemo(() => {
+        const lista = [];
+
+        blokkok.forEach((bl, bidx) => {
+            const par = parKeres(bl.par);
+            const k = korKeres(korok, bl.kor);
+            const cim = `${par ? par.savok.map(s => s.szam).join('/') : '???'} pálya · ${bl.kor}. kör`;
+            if (!par) { lista.push({ tipus: 'hiba', szoveg: `${cim}: nincs ilyen pályapár` }); return; }
+            if (!k) { lista.push({ tipus: 'hiba', szoveg: `${cim}: nincs ilyen kör` }); return; }
+
+            const ures = bl.csapatok.filter(c => !c.trim()).length;
+            if (ures) lista.push({ tipus: 'hiba', szoveg: `${cim}: ${ures} üres csapathely` });
+
+            // ismétlődés CSAK a blokkon belül -- ugyanaz a klub más szinten más csapat
+            const nevek = bl.csapatok.map(c => c.trim().toLowerCase()).filter(c => c);
+            const dupla = nevek.filter((n, i) => nevek.indexOf(n) !== i);
+            if (dupla.length) lista.push({ tipus: 'hiba', szoveg: `${cim}: ismétlődő csapat (${dupla[0]})` });
+
+            const sablon = MENETREND_SABLONOK[bl.sablon];
+            if (!sablon) { lista.push({ tipus: 'hiba', szoveg: `${cim}: nincs ilyen sablon (${bl.sablon})` }); return; }
+
+            const kell = Math.max(...sablon.map(k => Math.max(...k.filter(p => p).map(p => Math.max(p[0], p[1]))))) + 1;
+            if (kell !== bl.csapatszam) lista.push({
+                tipus: 'hiba', szoveg: `${cim}: a sablon ${kell} csapatra való, a blokkban ${bl.csapatszam} van`
+            });
+            if (k.elsoMeccs + sablon.length > meccsDb) lista.push({
+                tipus: 'hiba',
+                szoveg: `${cim}: ${sablon.length} mérkőzést foglalna, de a ${k.elsoMeccs + 1}. mérkőzéstől csak ${meccsDb - k.elsoMeccs} fér el`
+            });
+            // átnyúlik a következő körbe? (5-6 csapatos blokknál ez szándékos, de tudni kell róla)
+            if (sablon.length > korMeccs) lista.push({
+                tipus: 'rolba',
+                szoveg: `${cim}: ${sablon.length} mérkőzés — átnyúlik a következő körbe, az a pálya ott foglalt`
+            });
+            // zárt sávra esne meccs?
+            const kellSav = sablon.some(x => x[1]) ? 2 : 1;
+            for (let sv = 0; sv < kellSav; sv++) {
+                if (savZart(par, sv, k.korosztaly)) lista.push({
+                    tipus: 'hiba', szoveg: `${cim}: a ${par.savok[sv].szam}-es pálya zárva van ${k.korosztaly}-ra, de a sablon használná`
+                });
+            }
+        });
+
+        // Ugyanazon a pályapáron két blokk átfedő mérkőzéshelyeket foglal
+        blokkok.forEach((a, ai) => blokkok.slice(ai + 1).forEach((b) => {
+            if (a.par !== b.par) return;
+            const ka = korKeres(korok, a.kor), kb = korKeres(korok, b.kor);
+            if (!ka || !kb || ka.korosztaly !== kb.korosztaly) return;
+            const sa = MENETREND_SABLONOK[a.sablon], sb = MENETREND_SABLONOK[b.sablon];
+            if (!sa || !sb) return;
+            const atfed = ka.elsoMeccs < kb.elsoMeccs + sb.length && kb.elsoMeccs < ka.elsoMeccs + sa.length;
+            if (atfed) {
+                const par = parKeres(a.par);
+                lista.push({
+                    tipus: 'hiba',
+                    szoveg: `${par ? par.savok.map(s => s.szam).join('/') : a.par} pálya: a ${a.kor}. és a ${b.kor}. kör blokkja ugyanarra az időre esik`
+                });
+            }
+        }));
+
+        // Ugyanaz a csapatnév két blokkban, AZONOS szinten és korosztályban -- ez gyanús
+        const nevTerkep = {};
+        blokkok.forEach((bl, bidx) => bl.csapatok.forEach(nev => {
+            const n = nev.trim().toLowerCase();
+            if (!n) return;
+            const kk = korKeres(korok, bl.kor);
+            const kulcs = `${kk ? kk.korosztaly : '?'}|${bl.szint}|${n}`;
+            (nevTerkep[kulcs] = nevTerkep[kulcs] || []).push(bidx);
+        }));
+        Object.entries(nevTerkep).forEach(([k, lista2]) => {
+            if (lista2.length < 2) return;
+            const r = k.split('|');
+            lista.push({
+                tipus: 'rolba',
+                szoveg: `"${blokkok[lista2[0]].csapatok.find(c => c.trim().toLowerCase() === r[2])}" ${lista2.length}× szerepel ${r[0]} ${r[1]} szinten — biztosan két külön csapat?`
+            });
+        });
+
+        return lista;
+    }, [blokkok, parok, korok, meccsDb, korMeccs]);
+
+    // --- Kimenet ---
+    const xlsMentes = async () => {
+        try {
+            const wb = xlsFormazott(lapok, blokkok, fejlec);
+            const puffer = await wb.xlsx.writeBuffer();
+            const blob = new Blob([puffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'jegkorongnap_menetrend.xlsx';
+            a.click();
+        } catch (e) {
+            alert('Az Excel mentés nem sikerült: ' + e.message);
+        }
+    };
+
+    const mentes = () => {
+        const blob = new Blob([JSON.stringify({ fejlec, korosztalyok, meccsDb, korMeccs, parok, blokkok, kereszt }, null, 1)],
+            { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'jegkorongnap_mentes.json';
+        a.click();
+    };
+
+    const betoltes = (e) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        const r = new FileReader();
+        r.onload = () => {
+            try {
+                const d = JSON.parse(r.result);
+                if (d.parok && d.blokkok) {
+                    setFejlec(d.fejlec || masol(ADAT.fejlec));
+                    setKorosztalyok(d.korosztalyok || masol(ADAT.korosztalyok));
+                    setMeccsDb(d.meccsDb || ADAT.meccsDb);
+                    setKorMeccs(d.korMeccs || ADAT.korMeccs);
+                    setParok(d.parok);
+                    setBlokkok(d.blokkok);
+                    setKereszt(d.kereszt || {});
+                } else alert('Ez nem jégkorongnap-mentés.');
+            } catch (err) { alert('Hibás fájl: ' + err.message); }
+        };
+        r.readAsText(f);
+        e.target.value = '';
+    };
+
+    const visszaallit = () => {
+        if (!confirm('Minden visszaáll a 2025-ös alapsablonra. Biztos?')) return;
+        setFejlec(masol(ADAT.fejlec));
+        setKorosztalyok(masol(ADAT.korosztalyok));
+        setMeccsDb(ADAT.meccsDb);
+        setKorMeccs(ADAT.korMeccs);
+        setParok(masol(ADAT.parok));
+        setBlokkok(csapatNevekGeneral(masol(ADAT.blokkok),
+            korokLista(ADAT.korosztalyok, ADAT.meccsDb, ADAT.korMeccs)));
+        setKereszt({});
+    };
+
+    const korMezo = (idx, mezo, ertek) =>
+        setKorosztalyok(prev => prev.map((k, i) => (i === idx ? { ...k, [mezo]: ertek } : k)));
+
+    const fejlecMezo = (mezo, ertek) => setFejlec(prev => ({ ...prev, [mezo]: ertek }));
+
+    const hibaDb = figyelmeztetesek.filter(f => f.tipus === 'hiba').length;
+    const valaszto = "bg-slate-700 rounded p-1 text-[11px]";
+
+    return (
+        <div id="gyoker" className="flex h-screen overflow-hidden">
+            {/* BAL OLDAL: VEZÉRLŐ */}
+            <div className="print-hide w-80 bg-slate-900 text-white flex flex-col gap-2 p-3 overflow-y-auto custom-scrollbar shrink-0">
+                <h1 className="text-sm font-black tracking-wide">JÉGKORONGNAP MENETREND</h1>
+
+                <div className="grid grid-cols-2 gap-1">
+                    <button onClick={() => window.print()}
+                        className="bg-emerald-600 hover:bg-emerald-500 py-2 rounded font-bold text-xs">🖨 Nyomtatás</button>
+                    <button onClick={xlsMentes}
+                        className="bg-emerald-700 hover:bg-emerald-600 py-2 rounded font-bold text-xs">⤓ XLSX</button>
+                    <button onClick={mentes}
+                        className="bg-slate-700 hover:bg-slate-600 py-2 rounded font-bold text-xs">💾 Mentés</button>
+                    <label className="bg-slate-700 hover:bg-slate-600 py-2 rounded font-bold text-xs text-center cursor-pointer">
+                        📂 Betöltés
+                        <input type="file" accept=".json" onChange={betoltes} className="hidden" />
+                    </label>
+                </div>
+
+                <button onClick={() => { setSzerkesztheto(!szerkesztheto); setMeccsKijelolt(null); }}
+                    className={`py-2 rounded font-bold text-xs border ${szerkesztheto
+                        ? 'bg-amber-600 border-amber-400' : 'bg-slate-700 border-slate-600 hover:bg-slate-600'}`}>
+                    ✎ Szerkesztés {szerkesztheto ? 'BE' : 'KI'}
+                </button>
+                {szerkesztheto && meccsKijelolt &&
+                    <div className="text-emerald-400 text-[10px] font-bold text-center">
+                        Csere: válaszd ki a párját (Esc = mégsem)
+                    </div>}
+
+                {/* Nyomtatási válogatás */}
+                <section className="bg-slate-800 rounded-lg p-2 space-y-1 border border-slate-700">
+                    <div className="text-slate-400 font-bold text-[11px]">NYOMTATÁS / EXPORT</div>
+                    <div className="flex gap-2">
+                        {korosztalyok.map(k => (
+                            <label key={k.nev} className="flex items-center gap-1 text-[11px]">
+                                <input type="checkbox" checked={nyomtatKorok.indexOf(k.nev) >= 0} className="accent-emerald-500"
+                                    onChange={() => setNyomtatKorok(prev => prev.indexOf(k.nev) >= 0
+                                        ? prev.filter(x => x !== k.nev) : prev.concat([k.nev]))} />
+                                {k.nev}
+                            </label>
+                        ))}
+                    </div>
+                    <label className="flex items-center gap-1 text-[11px]">
+                        <input type="checkbox" checked={kulonLapra} className="accent-emerald-500"
+                            onChange={() => setKulonLapra(!kulonLapra)} />
+                        korosztályonként külön lapra
+                    </label>
+                </section>
+
+                {/* Időzítés */}
+                <section className="bg-slate-800 rounded-lg p-2 space-y-1 border border-slate-700">
+                    <div className="flex items-center gap-1">
+                        <div className="text-slate-400 font-bold text-[11px] flex-1">IDŐZÍTÉS</div>
+                        <button onClick={korosztalySorrend} title="Melyik korosztály kezdi a tornát"
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600 font-bold">
+                            ⇅ sorrend
+                        </button>
+                    </div>
+                    {korosztalyok.map((k, i) => (
+                        <div key={k.nev} className="grid grid-cols-[28px_1fr_1fr_1fr] gap-1 items-center text-[10px]">
+                            <span className="font-bold">{k.nev}</span>
+                            <input value={k.kezdes} onChange={e => korMezo(i, 'kezdes', e.target.value)}
+                                title="kezdés" className={valaszto} />
+                            <input type="number" value={k.jatekido} onChange={e => korMezo(i, 'jatekido', parseInt(e.target.value, 10) || 0)}
+                                title="játékidő (perc)" className={valaszto} />
+                            <input type="number" value={k.atallas} onChange={e => korMezo(i, 'atallas', parseInt(e.target.value, 10) || 0)}
+                                title="átállás (perc)" className={valaszto} />
+                        </div>
+                    ))}
+                    <label className="flex items-center gap-1 text-[10px]">
+                        <span className="text-slate-400 flex-1">mérkőzések száma pályánként</span>
+                        <input type="number" min="1" max="12" value={meccsDb}
+                            onChange={e => setMeccsDb(parseInt(e.target.value, 10) || 6)}
+                            className={valaszto + ' w-14'} />
+                    </label>
+                    <label className="flex items-center gap-1 text-[10px]">
+                        <span className="text-slate-400 flex-1">egy kör hány mérkőzés</span>
+                        <input type="number" min="1" max="6" value={korMeccs}
+                            onChange={e => setKorMeccs(parseInt(e.target.value, 10) || 3)}
+                            className={valaszto + ' w-14'} />
+                    </label>
+                    <div className="text-[9px] text-slate-500">
+                        Oszlopok: kezdés · játékidő · átállás. A zárás ebből számolódik.<br />
+                        Körök: {korok.map(k => `${k.szam}. ${k.korosztaly}`).join(' · ')}
+                    </div>
+                </section>
+
+                <PalyaKartya parok={parok} palyaSzamAllit={palyaSzamAllit} zarAllit={zarAllit}
+                    parTorol={parTorol} parHozzaad={parHozzaad} />
+
+                {/* Keresztcserék */}
+                {Object.keys(kereszt).length > 0 && (
+                    <section className="bg-slate-800 rounded-lg p-2 space-y-1 border border-slate-700">
+                        <div className="text-slate-400 font-bold text-[11px]">CSERÉK</div>
+                        {Object.entries(kereszt).map(([korNev, lista]) => lista.map((c, i) => (
+                            <div key={korNev + i} className="flex items-center gap-1 text-[10px]">
+                                <span className="flex-1">
+                                    {korNev}: {c.a.par} {c.a.slot + 1}. mérkőzés ↔ {c.b.par} {c.b.slot + 1}. mérkőzés
+                                </span>
+                                <button onClick={() => keresztTorol(korNev, i)}
+                                    className="sorgomb text-amber-400" title="Csere visszavonása">↺</button>
+                            </div>
+                        )))}
+                    </section>
+                )}
+
+                {/* Ellenőrzések */}
+                <section className="bg-slate-800 rounded-lg p-2 space-y-1 border border-slate-700">
+                    <div className="text-slate-400 font-bold text-[11px]">
+                        ELLENŐRZÉS {hibaDb ? <span className="text-red-400">({hibaDb} hiba)</span> : <span className="text-emerald-400">✓</span>}
+                    </div>
+                    {figyelmeztetesek.length === 0
+                        ? <div className="text-[10px] text-slate-500">Minden rendben.</div>
+                        : figyelmeztetesek.map((f, i) => (
+                            <div key={i} className={`text-[10px] ${f.tipus === 'hiba' ? 'text-red-300' : 'text-amber-300'}`}>
+                                {f.tipus === 'hiba' ? '✕' : '!'} {f.szoveg}
+                            </div>
+                        ))}
+                </section>
+
+                {/* Blokkok */}
+                <section className="space-y-1">
+                    <div className="text-slate-400 font-bold text-[11px]">BLOKKOK ({blokkok.length})</div>
+                    <UjBlokk parok={parok} korok={korok} hozzaad={blokkHozzaad} />
+                    {blokkok.map((bl, i) => (
+                        <BlokkKartya key={i} bidx={i} blokk={bl} par={parKeres(bl.par)} korok={korok}
+                            frissit={blokkFrissit} mezoAllit={blokkMezo} torol={blokkTorol}
+                            kivalasztott={kivalasztott} setKivalasztott={setKivalasztott}
+                            csere={csere} meccsDb={meccsDb} />
+                    ))}
+                </section>
+
+                <button onClick={visszaallit}
+                    className="bg-red-900/60 hover:bg-red-800 py-2 rounded text-xs font-bold border border-red-700">
+                    ↺ Vissza a 2025-ös alapsablonra
+                </button>
+            </div>
+
+            {/* JOBB OLDAL: LAPOK */}
+            <div id="lapok" className="flex-1 overflow-auto p-6 custom-scrollbar">
+                {lapok.length === 0
+                    ? <div className="text-center text-slate-500 py-20 text-sm">
+                        Jelölj be legalább egy korosztályt.
+                      </div>
+                    : lapok.map((lap, li) => (
+                        <Lap key={li} lap={lap} blokkok={blokkok} fejlec={fejlec}
+                            szerkesztheto={szerkesztheto} fejlecMezo={fejlecMezo}
+                            meccsKijelolt={meccsKijelolt} nevreKattint={nevreKattint}
+                            palyaSzamAllit={palyaSzamAllit} />
+                    ))}
+            </div>
+        </div>
+    );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<MenetrendApp />);
+</script>
+</body>
+</html>
