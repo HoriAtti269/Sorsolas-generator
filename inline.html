@@ -19,6 +19,8 @@
             .custom-scrollbar { overflow: visible !important; }
             /* Testvérharc: a sárga jelzés csak a képernyőn látszik, a PDF-ben a sor saját színe marad */
             .testver-jelzes { background-color: var(--zebra, transparent) !important; }
+            /* Sorsolás-ellenőrzés: a piros keret szintén csak a képernyőn */
+            .hiba-jelzes { outline: none !important; }
             #nyomtatasi-terulet {
                 width: 297mm !important; height: 210mm !important; margin: 0 !important; padding: 10mm !important;
                 box-shadow: none !important; border: none !important; border-radius: 0 !important; transform: scale(1) !important;
@@ -31,6 +33,8 @@
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+        /* Sorsolás-ellenőrzés: a hibás sor piros kerete (nyomtatásban eltűnik) */
+        .hiba-jelzes { outline: 2px solid #dc2626; outline-offset: -2px; }
     </style>
 </head>
 <body class="bg-slate-200">
@@ -69,37 +73,37 @@
             ];
 
             const csarnokNevekLista = [
-                "Ajka Jégcsarnok", "Algyő", "Angels Skills Hockey Center", "Bajai Jég és Szabadidő Csarnok", "Balatonboglár", 
-                "Budai Jégpálya (Jégkert)", "Budakalászi Jégpálya", "Csabai Jégpajta", "Debrecen, 2. pálya", "Debrecen, Centerpálya", 
-                "Dél-Budai Jég-és Szabadidő Centrum", "Dunakeszi Jégpálya", "Dunaújvárosi Jégcsarnok", "Duocor Jégcsarnok, Makó", 
-                "Eger", "Érdi Jégcsarnok", "Esztergom Jégcsarnok", "FTC Sátras Jégpálya", "Győri Egyetemi Jégsport Központ", 
-                "Győri Jégcsarnok - kispálya", "Halásztelek", "Hatvani Jégpálya", "Ifj. Ocskay Gábor Jégcsarnok, B pálya", 
-                "Ifj. Ocskay Gábor Jégcsarnok, C pálya", "Jászberényi Jégcsarnok", "Kaposvári Jégcsarnok", "Kazincbarcika", 
-                "Kecskeméti Jégpálya", "Kisstadion", "Kőbányai Jégpálya", "Lőrinci Jégcsarnok", "Mátyásföldi Jégcsarnok", 
-                "Millenáris", "Miskolc, 2. pálya", "Miskolci Jégcsarnok", "Mosonmagyaróvári Jégpálya", "Nyíregyháza", 
-                "Óbudai Jégcsarnok - Kispálya", "Óbudai Jégcsarnok - Nagypálya", "Pécs", "Pesterzsébet Jégcsarnok", 
-                "Rajz Attila Jégpálya", "Sátoraljaújhely Jégcsarnok", "Sopron", "Szarvasi Jégpálya", "Szeged", 
-                "Szekszárdi Jégcsarnok", "Szolnoki Jégpálya", "Tatabányai Műjégpálya", "Tatai Városkapu Sport- és Jégsátor", 
-                "Táti Jégpálya", "Tököli Jégdóm", "Trend Optika Jégcsarnok Szombathely", "Tüskesátor", "Újpesti Jégcsarnok", 
-                "UTE Szilágyi utcai jégcsarnok", "Városgazda Jégpálya", "Várpalota", "Vasas Jégcentrum, Centerpálya", 
+                "Ajka Jégcsarnok", "Algyő", "Angels Skills Hockey Center", "Bajai Jég és Szabadidő Csarnok", "Balatonboglár",
+                "Budai Jégpálya (Jégkert)", "Budakalászi Jégpálya", "Csabai Jégpajta", "Debrecen, 2. pálya", "Debrecen, Centerpálya",
+                "Dél-Budai Jég-és Szabadidő Centrum", "Dunakeszi Jégpálya", "Dunaújvárosi Jégcsarnok", "Duocor Jégcsarnok, Makó",
+                "Eger", "Érdi Jégcsarnok", "Esztergom Jégcsarnok", "FTC Sátras Jégpálya", "Győri Egyetemi Jégsport Központ",
+                "Győri Jégcsarnok - kispálya", "Halásztelek", "Hatvani Jégpálya", "Ifj. Ocskay Gábor Jégcsarnok, B pálya",
+                "Ifj. Ocskay Gábor Jégcsarnok, C pálya", "Jászberényi Jégcsarnok", "Kaposvári Jégcsarnok", "Kazincbarcika",
+                "Kecskeméti Jégpálya", "Kisstadion", "Kőbányai Jégpálya", "Lőrinci Jégcsarnok", "Mátyásföldi Jégcsarnok",
+                "Millenáris", "Miskolc, 2. pálya", "Miskolci Jégcsarnok", "Mosonmagyaróvári Jégpálya", "Nyíregyháza",
+                "Óbudai Jégcsarnok - Kispálya", "Óbudai Jégcsarnok - Nagypálya", "Pécs", "Pesterzsébet Jégcsarnok",
+                "Rajz Attila Jégpálya", "Sátoraljaújhely Jégcsarnok", "Sopron", "Szarvasi Jégpálya", "Szeged",
+                "Szekszárdi Jégcsarnok", "Szolnoki Jégpálya", "Tatabányai Műjégpálya", "Tatai Városkapu Sport- és Jégsátor",
+                "Táti Jégpálya", "Tököli Jégdóm", "Trend Optika Jégcsarnok Szombathely", "Tüskesátor", "Újpesti Jégcsarnok",
+                "UTE Szilágyi utcai jégcsarnok", "Városgazda Jégpálya", "Várpalota", "Vasas Jégcentrum, Centerpálya",
                 "Vasas Jégcentrum, Edzőpálya", "Veszprém Jégcsarnok", "Zalaegerszegi Jégcsarnok"
             ];
 
             const csapatNevekLista = [
-                "Ajkai Óriások", "Algyői Olajosok", "ANGELS", "Bajai Harcsák", "Bajai Lurkók", "Bajai Törpeharcsák", 
-                "Balatoni Bocsok HC", "Budakalászi Vidra Se", "Budapesti Jégkorong Akadémia", "B-Villámok SE", 
-                "Csabai Farkasok", "CSAPATOM", "Debreceni Hoki Klub", "Dél- Budai Hockey Club", "DSC-SI", 
-                "Dunaújvárosi Acélbikák", "Dunaújvárosi Jégtörők", "DVTK Jegesmedvék", "Egerstars Egri Városi Sportiskola", 
-                "Egerszegi Titánok", "Egri Városi Sportiskola", "ESMTK", "FTC-Telekom", "Goodwill Pharma Szeged", 
-                "Gödöllői Muskétások", "Hatvani Gigászok", "HC Kiskőrös", "HK Spartak Subotica", "HKB", "HKB Hurricanes", 
-                "Ifj. Ocskay Gábor JA", "Jégkert SE", "Jégoroszlánok", "Kalózok Hoki Klub", "Kárpáti Farkasok", 
-                "KASI", "KASI USE", "Kazincbarcikai Ördögök", "KESI", "Kőszegi Farkasok", "KSI", "Lehel HC", "Lizards", 
-                "MAC Budapest A", "Magyar Jégkorong Szövetség", "Marosi Pengék", "Megyeri Pingvinek", "Mosonmagyaróvári Jégsárkányok", 
-                "NS Stars", "Nyíregyházi Sportcentrum", "Nyugati Eszkimók", "OHA", "Óvári Jégsárkányok", "Pécsi Sakálok", 
-                "Pécsi Sportiskola", "Polipkák", "Polipok mini", "Pörgős Pengék", "RTK Vasló", "SMAFC Jégtörők", 
-                "Sportországi Cápák", "Szabolcsi Sólymok", "Szarvasi Jégkorong SE", "Szekszárdi Jégmadarak", 
-                "Szent István Sportiskola", "Szigeti Bikák Pesterzsébet", "Szolnok Orcas Hockey SE", "Szombathelyi Pingvinek", 
-                "Tatai Hódok", "Táti Tigrisek", "UNI GYŐR ETO HC", "UTE", "Városgazda", "Vasas SC", "Veszprémi Jéglovagok", 
+                "Ajkai Óriások", "Algyői Olajosok", "ANGELS", "Bajai Harcsák", "Bajai Lurkók", "Bajai Törpeharcsák",
+                "Balatoni Bocsok HC", "Budakalászi Vidra Se", "Budapesti Jégkorong Akadémia", "B-Villámok SE",
+                "Csabai Farkasok", "CSAPATOM", "Debreceni Hoki Klub", "Dél- Budai Hockey Club", "DSC-SI",
+                "Dunaújvárosi Acélbikák", "Dunaújvárosi Jégtörők", "DVTK Jegesmedvék", "Egerstars Egri Városi Sportiskola",
+                "Egerszegi Titánok", "Egri Városi Sportiskola", "ESMTK", "FTC-Telekom", "Goodwill Pharma Szeged",
+                "Gödöllői Muskétások", "Hatvani Gigászok", "HC Kiskőrös", "HK Spartak Subotica", "HKB", "HKB Hurricanes",
+                "Ifj. Ocskay Gábor JA", "Jégkert SE", "Jégoroszlánok", "Kalózok Hoki Klub", "Kárpáti Farkasok",
+                "KASI", "KASI USE", "Kazincbarcikai Ördögök", "KESI", "Kőszegi Farkasok", "KSI", "Lehel HC", "Lizards",
+                "MAC Budapest A", "Magyar Jégkorong Szövetség", "Marosi Pengék", "Megyeri Pingvinek", "Mosonmagyaróvári Jégsárkányok",
+                "NS Stars", "Nyíregyházi Sportcentrum", "Nyugati Eszkimók", "OHA", "Óvári Jégsárkányok", "Pécsi Sakálok",
+                "Pécsi Sportiskola", "Polipkák", "Polipok mini", "Pörgős Pengék", "RTK Vasló", "SMAFC Jégtörők",
+                "Sportországi Cápák", "Szabolcsi Sólymok", "Szarvasi Jégkorong SE", "Szekszárdi Jégmadarak",
+                "Szent István Sportiskola", "Szigeti Bikák Pesterzsébet", "Szolnok Orcas Hockey SE", "Szombathelyi Pingvinek",
+                "Tatai Hódok", "Táti Tigrisek", "UNI GYŐR ETO HC", "UTE", "Városgazda", "Vasas SC", "Veszprémi Jéglovagok",
                 "VSD Párducok", "VUA Pandák", "White Sharks HC", "Zempléni Hiúzok"
             ];
 
@@ -112,7 +116,7 @@
                 "BUDAPESTI JÉGKORONG AKADÉMIA": "BJA", "B-VILLÁMOK SE": "BVILL",
                 "CSABAI FARKASOK": "CSAB", "CSAPATOM": "CSAP",
                 "DEBRECENI HOKI KLUB": "DHK", "DHK": "DHK",
-                "DÉL- BUDAI HOCKEY CLUB": "PHC", "DÉL-BUDAI HOCKEY CLUB": "PHC", 
+                "DÉL- BUDAI HOCKEY CLUB": "PHC", "DÉL-BUDAI HOCKEY CLUB": "PHC",
                 "DSC-SI": "DSC", "DEBRECENI SPORTISKOLA": "DSC",
                 "DUNAÚJVÁROSI ACÉLBIKÁK": "DAB", "DAB": "DAB", "DUNAÚJVÁROSI JÉGTÖRŐK": "DAB",
                 "DVTK JEGESMEDVÉK": "DVTK", "EGERSTARS EGRI VÁROSI SPORTISKOLA": "EGERSTARS",
@@ -163,29 +167,29 @@
                 let a = teamA.trim().toUpperCase();
                 let b = teamB.trim().toUpperCase();
                 if (a === 'SZABAD' || b === 'SZABAD' || a === '' || b === '') return false;
-                
+
                 // Tisztító képlet: levágjuk a sorszámokat, betűjeleket (A1, B, II stb.)
                 const clean = (s) => s.replace(/(\s*\d+|\s+[A-Z]\d*|\s+II|\s+III|\s+IV)$/i, '').trim();
                 let cleanA = clean(a);
                 let cleanB = clean(b);
-                
+
                 // 1. Sima név egyezés (pl. MAC A1 vs MAC B2 -> mindkettő "MAC")
                 if (cleanA === cleanB && cleanA.length > 2) return true;
 
                 // 2. Rejtett testvérek vagy Logó kódok alapján
                 const logoA = getLogoName(a) || cleanA;
                 const logoB = getLogoName(b) || cleanB;
-                
+
                 for (let pair of rejtettTestverek) {
                     // Biztosítjuk, hogy a tömb elemei nagybetűsek legyenek az összehasonlításhoz
                     const upperPair = pair.map(p => p.toUpperCase());
-                    if ((upperPair.includes(logoA) && upperPair.includes(logoB)) || 
+                    if ((upperPair.includes(logoA) && upperPair.includes(logoB)) ||
                         (upperPair.includes(cleanA) && upperPair.includes(cleanB)) ||
                         (upperPair.includes(a) && upperPair.includes(b))) {
                         return true;
                     }
                 }
-                
+
                 return false;
             };
 
@@ -209,16 +213,16 @@
                 rendezo: '', helyszin: '',
                 info: '', infoSzin: '#dc2626', palyaTipus: '2_palya',
                 egyediBemelegitesPerc: '',
-                egyediMeccsPerc: '', 
+                egyediMeccsPerc: '',
                 egyediSzunetPerc: ''
             });
 
             const [csapatok, setCsapatok] = useState(['', '', '', '', '', '', '', '']);
             const [csapatSzinek, setCsapatSzinek] = useState(Array(8).fill('#1e293b')); // ÚJ: Minden csapat alapból sötétkék/fekete
-            const [pastedData, setPastedData] = useState(''); 
-            const [utkozesEngedelyezve, setUtkozesEngedelyezve] = useState(false); 
+            const [pastedData, setPastedData] = useState('');
+            const [utkozesEngedelyezve, setUtkozesEngedelyezve] = useState(false);
             const fileInputRef = useRef(null);
-            
+
             // --- ÚJ: CSAPATCSERE ÉS KONKRÉT MECCS FELÜLÍRÁS MEMÓRIÁJA ---
             const [kivalasztottCsapat, setKivalasztottCsapat] = useState(null);
             const [manualOverrides, setManualOverrides] = useState({});
@@ -241,7 +245,7 @@
                 if (ujSzint !== tornaAdatok.szint) {
                     setTornaAdatok(prev => ({ ...prev, szint: ujSzint }));
                 }
-                
+
                 setUtkozesEngedelyezve(false);
                 setKivalasztottCsapat(null);
             }, [csapatok, tornaAdatok.korosztaly, tornaAdatok.csoport, isJSONLoading]);
@@ -270,8 +274,8 @@
 
                 let celtPalya = 0; let elrendezes = '';
                 if (u8) {
-                    if (maxPalya === 1 || overridePalya === 1) { celtPalya = 1; } 
-                    else if (maxPalya === 2 || overridePalya === 2) { celtPalya = 2; elrendezes = '_side'; } 
+                    if (maxPalya === 1 || overridePalya === 1) { celtPalya = 1; }
+                    else if (maxPalya === 2 || overridePalya === 2) { celtPalya = 2; elrendezes = '_side'; }
                     else {
                         celtPalya = overridePalya > 0 ? overridePalya : (talaltCsapatokSzama >= 8 ? 4 : (talaltCsapatokSzama >= 6 ? 3 : 2));
                         if (celtPalya === 2) elrendezes = '_stack';
@@ -279,7 +283,7 @@
                         if (celtPalya === 4) elrendezes = '_grid';
                     }
                 } else {
-                    if (maxPalya === 1 || overridePalya === 1) { celtPalya = 1; } 
+                    if (maxPalya === 1 || overridePalya === 1) { celtPalya = 1; }
                     else { celtPalya = overridePalya > 0 ? overridePalya : 2; elrendezes = '_side'; }
                 }
 
@@ -315,22 +319,22 @@
                     try {
                         const data = JSON.parse(ev.target.result);
                         setIsJSONLoading(true); // VÉDELEM BE
-                        
-                        setManualOverrides({}); 
+
+                        setManualOverrides({});
                         setCsapatSzinek(Array(8).fill('#1e293b'));
                         setCsapatok(['', '', '', '', '', '', '', '']);
-                        
+
                         if (data.csapatok) setCsapatok(data.csapatok);
                         if (data.csapatSzinek) setCsapatSzinek(data.csapatSzinek);
                         if (data.tornaAdatok) setTornaAdatok(data.tornaAdatok);
-                        
+
                         setTimeout(() => {
                             if (data.manualOverrides) setManualOverrides(data.manualOverrides);
                             setIsJSONLoading(false); // VÉDELEM KI
                         }, 150);
-                    } catch (err) { 
+                    } catch (err) {
                         setIsJSONLoading(false);
-                        alert("Hiba a fájl beolvasásakor!"); 
+                        alert("Hiba a fájl beolvasásakor!");
                     }
                 };
                 reader.readAsText(file); e.target.value = null;
@@ -346,7 +350,7 @@
             };
 
             // --- CSAPATCSERE FUNKCIÓK ---
-            
+
             // 1. Bal oldali lista cseréje (Minden meccsre hat)
             const handleTeamClick = (index) => {
                 if (kivalasztottCsapat === null) {
@@ -358,7 +362,7 @@
                         ujCsapatok[kivalasztottCsapat] = ujCsapatok[index];
                         ujCsapatok[index] = temp;
                         setCsapatok(ujCsapatok);
-                        
+
                         const ujSzinek = [...csapatSzinek];
                         const tempSzin = ujSzinek[kivalasztottCsapat];
                         ujSzinek[kivalasztottCsapat] = ujSzinek[index];
@@ -392,10 +396,10 @@
                 let ujCsapatok = ['', '', '', '', '', '', '', ''];
                 let talaltCsapatokSzama = 0;
 
-                setUtkozesEngedelyezve(false); 
+                setUtkozesEngedelyezve(false);
                 setKivalasztottCsapat(null);
                 setManualOverrides({});
-                
+
                 const rawLines = text.split('\n').map(l => l.trim()).filter(l => l !== '');
                 if (rawLines.length === 0) return;
 
@@ -428,19 +432,19 @@
                 for (let i = 0; i < rawLines.length; i++) {
                     const line = rawLines[i];
                     const teamMatch = line.match(/^\d{1,2}[\.\)]\s*(.+)$/);
-                    if (teamMatch && !teamMatch[1].toLowerCase().includes('résztvevők') && talaltCsapatokSzama < 8) { 
+                    if (teamMatch && !teamMatch[1].toLowerCase().includes('résztvevők') && talaltCsapatokSzama < 8) {
                         const tName = teamMatch[1].split('\t')[0].trim();
                         if(tName && !tName.toUpperCase().includes('PÁLYA') && tName.toUpperCase() !== 'KEZDŐ') {
                             ujCsapatok[talaltCsapatokSzama] = tName;
-                            talaltCsapatokSzama++; 
+                            talaltCsapatokSzama++;
                         }
                     } else if (line.match(/^\d{1,2}[\.\)]?(?!\d)$/)) {
-                        if (i + 1 < rawLines.length && talaltCsapatokSzama < 8) { 
+                        if (i + 1 < rawLines.length && talaltCsapatokSzama < 8) {
                             const tName = rawLines[i + 1].split('\t')[0].trim();
                             if(tName && !tName.toUpperCase().includes('PÁLYA') && tName.toUpperCase() !== 'KEZDŐ') {
                                 ujCsapatok[talaltCsapatokSzama] = tName;
-                                talaltCsapatokSzama++; 
-                                i++; 
+                                talaltCsapatokSzama++;
+                                i++;
                             }
                         }
                     }
@@ -488,10 +492,10 @@
 
             const sablonAdatbazis = {};
             Object.keys(sablonData).forEach(key => {
-                if (key.includes('_2p') || key.includes('_3p')) { 
-                    sablonAdatbazis[`${key}_side`] = sablonData[key]; 
-                } else { 
-                    sablonAdatbazis[key] = sablonData[key]; 
+                if (key.includes('_2p') || key.includes('_3p')) {
+                    sablonAdatbazis[`${key}_side`] = sablonData[key];
+                } else {
+                    sablonAdatbazis[key] = sablonData[key];
                 }
             });
 
@@ -527,12 +531,12 @@
 
                         if (currentSor.kor === 'ROLBA') {
                             // Ha ROLBA/SZÜNET volt, hozzáadjuk a szünetet(20) és a következő meccs bemelegítését(10)
-                            ossz += rolbaPerc + bemelegitesPerc; 
+                            ossz += rolbaPerc + bemelegitesPerc;
                         } else if (currentSor.kor !== 'ZARAS') {
                             // Ha MECCS volt, megnézzük mi jön utána
-                            if (nextSor && !nextSor.kor) { 
+                            if (nextSor && !nextSor.kor) {
                                 // Ha a következő IS MECCS (4 csapat 1 pálya), akkor: meccs(20) + csere(5) + bemelegítés(10)
-                                ossz += meccsPerc + 5 + bemelegitesPerc; 
+                                ossz += meccsPerc + 5 + bemelegitesPerc;
                             } else {
                                 // Ha a következő SZÜNET vagy ZÁRÁS, akkor csak maga a meccs hossza(20)
                                 ossz += meccsPerc;
@@ -572,40 +576,126 @@
                 return s;
             }, [msz, palyakSzama, tornaAdatok.kezdes, meccsPerc, rolbaPerc, bemelegitesPerc, tornaAdatok.szint]);
 
+            // --- SORSOLÁS-ELLENŐRZÉS: A SABLON AZ ETALON ---
+            // Nem tárolunk külön szabályokat (pl. "4 csapatnál 1-2 kétszer játszik"):
+            // amit a kiválasztott sablon előír, azt vetjük össze azzal, ami a kézi
+            // felülírások (manualOverrides) után ténylegesen a poszteren van. Így a
+            // 4 csapatos dupla párosítás és az 5 csapatos "rendező 4 meccs" magától
+            // helyes marad, és egy jövőbeli új sablonnál sem kell hozzányúlni.
+            const ellenorzes = useMemo(() => {
+                const uzenetek = [];
+                const hibasSorok = {};   // "A-3" -> true, ez a cella/sor kap piros keretet
+                if (!msz) return { uzenetek, hibasSorok };
+
+                const nev = (idx) => (csapatok[idx] && csapatok[idx].trim()) || `${idx + 1}. csapat`;
+                const parKulcs = (a, b) => [a, b].sort((x, y) => x - y).join('-');
+
+                // 1) Etalon: mit ír elő a sablon (csapatindexek szerint)
+                const sablonParok = {}; const sablonMeccs = {};
+                msz.forEach(sor => {
+                    if (!sor.meccsek) return;
+                    sor.meccsek.forEach(m => {
+                        if (!m) return;
+                        const k = parKulcs(m.h, m.v);
+                        sablonParok[k] = (sablonParok[k] || 0) + 1;
+                        sablonMeccs[m.h] = (sablonMeccs[m.h] || 0) + 1;
+                        sablonMeccs[m.v] = (sablonMeccs[m.v] || 0) + 1;
+                    });
+                });
+
+                // 2) Valóság: a kézi felülírásokkal együtt, körönként
+                const valosParok = {}; const valosMeccs = {};
+                msz.forEach((sor, i) => {
+                    if (!sor.meccsek) return;
+                    const korbenJatszik = {};   // csapatindex -> hányszor ebben a körben
+                    sor.meccsek.forEach((m, pIdx) => {
+                        if (!m) return;
+                        const rink = palyaBetuk[pIdx];
+                        const h = manualOverrides[`${rink}-${i}-h`] ?? m.h;
+                        const v = manualOverrides[`${rink}-${i}-v`] ?? m.v;
+
+                        if (h === v) {
+                            hibasSorok[`${rink}-${i}`] = true;
+                            uzenetek.push(`${nev(h)} önmaga ellen játszik ("${rink}" pálya, ${getIdopont(i)})`);
+                        }
+                        const k = parKulcs(h, v);
+                        valosParok[k] = (valosParok[k] || 0) + 1;
+                        valosMeccs[h] = (valosMeccs[h] || 0) + 1;
+                        valosMeccs[v] = (valosMeccs[v] || 0) + 1;
+                        korbenJatszik[h] = (korbenJatszik[h] || 0) + 1;
+                        korbenJatszik[v] = (korbenJatszik[v] || 0) + 1;
+                    });
+
+                    // Egy csapat egyszerre két pályán — ez a legsúlyosabb hiba
+                    Object.keys(korbenJatszik).forEach(idx => {
+                        if (korbenJatszik[idx] < 2) return;
+                        sor.meccsek.forEach((m, pIdx) => {
+                            if (!m) return;
+                            const rink = palyaBetuk[pIdx];
+                            const h = manualOverrides[`${rink}-${i}-h`] ?? m.h;
+                            const v = manualOverrides[`${rink}-${i}-v`] ?? m.v;
+                            if (h === +idx || v === +idx) hibasSorok[`${rink}-${i}`] = true;
+                        });
+                        uzenetek.push(`${nev(+idx)} egyszerre ${korbenJatszik[idx]} pályán játszik (${getIdopont(i)})`);
+                    });
+                });
+
+                // 3) Két csapat többször találkozik, mint a sablonban
+                Object.keys(valosParok).forEach(k => {
+                    const elvart = sablonParok[k] || 0;
+                    if (valosParok[k] <= elvart) return;
+                    const r = k.split('-').map(Number);
+                    if (r[0] === r[1]) return;   // az önmaga elleni esetet fentebb már jeleztük
+                    uzenetek.push(`${nev(r[0])} és ${nev(r[1])} ${valosParok[k]}× játszik egymással (sablon szerint ${elvart}×)`);
+                });
+
+                // 4) Meccsszám: a felülírás nem csere, a kiszorított csapat elveszít egy meccset
+                const mindenCsapat = {};
+                Object.keys(sablonMeccs).forEach(k => { mindenCsapat[k] = true; });
+                Object.keys(valosMeccs).forEach(k => { mindenCsapat[k] = true; });
+                Object.keys(mindenCsapat).forEach(idx => {
+                    const kell = sablonMeccs[idx] || 0; const van = valosMeccs[idx] || 0;
+                    if (kell === van) return;
+                    uzenetek.push(`${nev(+idx)}: ${van} meccs a sablon szerinti ${kell} helyett`);
+                });
+
+                return { uzenetek, hibasSorok };
+            }, [msz, manualOverrides, csapatok, tornaAdatok.kezdes, meccsPerc, rolbaPerc]);
+
             const mainGridConfig = useMemo(() => {
                 const levels = tornaAdatok.szint.split('_');
-                const pNum = parseInt(levels[levels.length - 2]); 
-                const layout = levels[levels.length - 1]; 
+                const pNum = parseInt(levels[levels.length - 2]);
+                const layout = levels[levels.length - 1];
 
-                if (tornaAdatok.szint.includes('1p') || pNum === 1) return "grid-cols-1"; 
+                if (tornaAdatok.szint.includes('1p') || pNum === 1) return "grid-cols-1";
                 if (pNum === 2) {
-                    if (layout === 'stack') return "grid-cols-1 grid-rows-2 gap-y-12"; 
-                    return "grid-cols-2 gap-x-6"; 
+                    if (layout === 'stack') return "grid-cols-1 grid-rows-2 gap-y-12";
+                    return "grid-cols-2 gap-x-6";
                 }
                 if (pNum === 3) {
-                    if (layout === 'mixed') return "grid-cols-2 grid-rows-2 gap-x-6 gap-y-12"; 
-                    return "grid-cols-3 gap-x-4"; 
+                    if (layout === 'mixed') return "grid-cols-2 grid-rows-2 gap-x-6 gap-y-12";
+                    return "grid-cols-3 gap-x-4";
                 }
-                if (pNum === 4) return "grid-cols-2 grid-rows-2 gap-x-6 gap-y-12"; 
-                return "grid-cols-1"; 
+                if (pNum === 4) return "grid-cols-2 grid-rows-2 gap-x-6 gap-y-12";
+                return "grid-cols-1";
             }, [tornaAdatok.szint]);
 
             const getRinkPlacement = (rinkLetter) => {
                 const levels = tornaAdatok.szint.split('_');
                 const layout = levels[levels.length - 1];
 
-                if (layout === 'mixed') { 
+                if (layout === 'mixed') {
                     if (rinkLetter === 'A') return "row-start-1 col-start-1";
                     if (rinkLetter === 'B') return "row-start-2 col-start-1";
                     if (rinkLetter === 'C') return "row-start-1 row-end-3 col-start-2";
                 }
-                if (layout === 'grid') { 
+                if (layout === 'grid') {
                     if (rinkLetter === 'A') return "row-start-1 col-start-1";
                     if (rinkLetter === 'C') return "row-start-1 col-start-2";
                     if (rinkLetter === 'B') return "row-start-2 col-start-1";
                     if (rinkLetter === 'D') return "row-start-2 col-start-2";
                 }
-                return "col-span-1"; 
+                return "col-span-1";
             };
 
             const isInvalidTeam = (nev) => !nev || nev.toUpperCase() === 'SZABAD';
@@ -615,10 +705,10 @@
 
             return (
                 <div className="flex flex-col md:flex-row h-screen font-sans overflow-hidden bg-slate-200">
-                    
+
                     {/* ✂️ --- 3. BLOKK HELYE: BAL OLDAL (VEZÉRLŐPULT) --- ✂️ */}
                     <div className="w-full md:w-96 bg-slate-900 text-white p-5 overflow-y-auto shadow-2xl z-20 print-hide h-full shrink-0 flex flex-col gap-4 custom-scrollbar">
-                        
+
                         <h2 className="text-xl font-black text-orange-400 border-b border-slate-700 pb-3 flex justify-between items-center">
                             INLINE v1.0
                             <label className={`flex items-center gap-1.5 text-[10px] uppercase font-bold cursor-pointer px-2 py-1.5 rounded transition ${utkozesEngedelyezve ? 'bg-green-900/40 text-green-400' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`} title="Pipáld be, ha JÓVÁHAGYOD a testvérharcot (eltűnik a sárga figyelmeztetés)">
@@ -639,7 +729,7 @@
         <span className="text-lg leading-none align-middle mr-1.5">🥅</span>U12 3x3
     </a>
 </div>
-                        
+
                         <div className="bg-yellow-900/30 border border-yellow-600/50 rounded-lg p-3">
                             <label className="block text-yellow-500 uppercase font-black mb-2 tracking-widest text-[10px]">🪄 Varázsdoboz (Beolvasás)</label>
                             <textarea value={pastedData} onChange={handleExcelPaste} placeholder="Másold be ide a tornát..." className="w-full bg-slate-800/80 p-2 rounded border border-slate-600 text-slate-200 text-sm h-20 focus:outline-none focus:border-yellow-500 placeholder-slate-500"/>
@@ -649,10 +739,23 @@
                             <div className="bg-red-900/50 text-red-200 p-2 rounded text-xs border border-red-800 font-bold text-center animate-pulse">⚠️ Hiányzó adatok (piros)!</div>
                         )}
 
+                        {/* SORSOLÁS-ELLENŐRZÉS: a kézi felülírások után keletkezett hibák */}
+                        {ellenorzes.uzenetek.length > 0 && (
+                            <div className="bg-red-900/40 border border-red-700 rounded-lg p-3 space-y-1">
+                                <div className="text-red-300 uppercase font-black tracking-widest text-[10px]">
+                                    ⚠️ Sorsolás-ellenőrzés ({ellenorzes.uzenetek.length})
+                                </div>
+                                {ellenorzes.uzenetek.map((uzenet, ui) => (
+                                    <div key={ui} className="text-red-200 text-[11px] leading-snug">• {uzenet}</div>
+                                ))}
+                                <div className="text-red-400/70 text-[10px] pt-1">A piros keret csak a képernyőn látszik, a nyomtatásba nem kerül bele.</div>
+                            </div>
+                        )}
+
                         <div className="space-y-4 text-sm">
                             <section className="bg-slate-800 p-4 rounded-xl border border-slate-700">
                                 <label className="block text-slate-400 uppercase font-bold mb-3 text-xs">Alapbeállítások</label>
-                                
+
                                 <div className="grid grid-cols-3 gap-2 mb-3">
                                     <select value={tornaAdatok.korosztaly} onChange={e => {
                                         const ujAdatok = {...tornaAdatok, korosztaly: e.target.value};
@@ -665,14 +768,14 @@
                                         const ujSzint = autoSelectTemplate(ujAdatok, csapatok);
                                         setTornaAdatok({...ujAdatok, szint: ujSzint});
                                     }} className={`p-2 rounded font-bold text-center text-sm outline-none ${isCsoportWarning ? 'bg-red-900 focus:ring-red-500' : 'bg-slate-700'}`}><option value="">- Nincs -</option><option value="A">A csop.</option><option value="B">B csop.</option><option value="C">C csop.</option></select>
-                                    
+
                                     <input type="time" value={tornaAdatok.kezdes} onChange={e => setTornaAdatok({...tornaAdatok, kezdes: e.target.value})} className={`p-2 rounded border font-bold text-sm ${!tornaAdatok.kezdes ? 'bg-red-900/80 border-red-500' : 'bg-slate-700 border-slate-600'}`}/>
                                 </div>
-                                
+
                                 <div className="flex gap-2">
-                                    <select 
-                                        value={tornaAdatok.szint} 
-                                        onChange={e => setTornaAdatok({...tornaAdatok, szint: e.target.value})} 
+                                    <select
+                                        value={tornaAdatok.szint}
+                                        onChange={e => setTornaAdatok({...tornaAdatok, szint: e.target.value})}
                                         className={`w-full p-2 rounded text-sm font-bold border outline-none ${isCsoportWarning ? 'bg-red-900 border-red-500' : 'bg-slate-700 border-slate-600'}`}
                                     >
                                         <option value="3cs_4m_1p">3 Csapat / 1 Pálya</option>
@@ -682,34 +785,34 @@
                                         <option value="6cs_4m_3p_side">6 Csapat / 3 Pálya</option>
                                     </select>
 
-                                    <input 
-                                        type="number" 
-                                        placeholder="Bem." 
+                                    <input
+                                        type="number"
+                                        placeholder="Bem."
                                         className="w-14 bg-slate-700 text-white p-2 rounded text-sm font-bold border border-slate-600 focus:outline-none text-center"
-                                        value={tornaAdatok.egyediBemelegitesPerc} 
+                                        value={tornaAdatok.egyediBemelegitesPerc}
                                         onChange={(e) => setTornaAdatok({ ...tornaAdatok, egyediBemelegitesPerc: e.target.value })}
                                         title="Bemelegítés hossza"
                                     />
 
-                                    <input 
-                                        type="number" 
-                                        placeholder="Meccs" 
+                                    <input
+                                        type="number"
+                                        placeholder="Meccs"
                                         className="w-14 bg-slate-700 text-white p-2 rounded text-sm font-bold border border-slate-600 focus:outline-none text-center"
-                                        value={tornaAdatok.egyediMeccsPerc} 
+                                        value={tornaAdatok.egyediMeccsPerc}
                                         onChange={(e) => setTornaAdatok({ ...tornaAdatok, egyediMeccsPerc: e.target.value })}
                                         title="Meccs hossza"
                                     />
 
-                                    <input 
-                                        type="number" 
-                                        placeholder="Szün." 
+                                    <input
+                                        type="number"
+                                        placeholder="Szün."
                                         className="w-14 bg-slate-700 text-white p-2 rounded text-sm font-bold border border-slate-600 focus:outline-none text-center"
-                                        value={tornaAdatok.egyediSzunetPerc} 
+                                        value={tornaAdatok.egyediSzunetPerc}
                                         onChange={(e) => setTornaAdatok({ ...tornaAdatok, egyediSzunetPerc: e.target.value })}
                                         title="Szünet hossza"
                                     />
                                 </div>
-                                
+
                                 {isCsoportWarning && (
                                     <div className="mt-2 bg-red-950/50 text-red-300 p-1.5 rounded text-xs text-center font-bold border border-red-800">
                                         ⚠️ A/B csoport van megadva, de 3 meccses (C szintű) sablont használsz!
@@ -727,17 +830,17 @@
                                     setTornaAdatok({...ujAdatok, szint: ujSzint});
                                 }} className="w-full bg-slate-800 p-2.5 rounded border border-slate-700 text-sm" placeholder="Válassz Helyszínt..."/>
                                 <datalist id="helyszin-lista">{csarnokNevekLista.map(nev => <option key={nev} value={nev} />)}</datalist>
-                                
+
                                 <div className="flex gap-2 items-center">
                                     <input type="text" list="info-javaslatok" value={tornaAdatok.info} onChange={e => {
                                         const ujAdatok = {...tornaAdatok, info: e.target.value};
                                         const ujSzint = autoSelectTemplate(ujAdatok, csapatok);
                                         setTornaAdatok({...ujAdatok, szint: ujSzint});
                                     }} className="flex-grow min-w-0 bg-slate-800 p-2.5 rounded border border-slate-700 text-slate-200 font-bold text-sm placeholder-slate-500 focus:outline-none focus:border-yellow-500" placeholder="Extra infó (pl. KISPÁLYA)"/>
-                                    
+
                                     <input type="color" value={tornaAdatok.infoSzin || '#dc2626'} onChange={e => setTornaAdatok({...tornaAdatok, infoSzin: e.target.value})} className="w-10 h-10 p-0 border-0 rounded cursor-pointer bg-transparent shrink-0" title="Válassz színt az extra infónak!" />
                                 </div>
-                                
+
                                 <datalist id="info-javaslatok">
                                     <option value="KEZDŐ"></option>
                                     <option value="KISPÁLYA"></option>
@@ -755,28 +858,28 @@
                                     const maxCsapat = requiredMatch ? parseInt(requiredMatch[0]) : 8;
                                     const isNeeded = i < maxCsapat;
                                     const isError = isNeeded && !cs;
-                                    
+
                                     // Ellenőrizzük, hogy ez a mező van-e kijelölve cserére
                                     const isSelectedForSwap = kivalasztottCsapat === i;
 
                                     return (
                                         <div key={i} className={`flex items-center gap-2 mb-2 ${!isNeeded ? 'opacity-30' : ''}`}>
                                             <span className="w-5 text-center text-slate-500 font-black text-sm">{i+1}</span>
-                                            <input 
-                                                type="text" 
-                                                list="csapat-lista" 
-                                                value={cs} 
-                                                onChange={e => {const n = [...csapatok]; n[i] = e.target.value; setCsapatok(n);}} 
+                                            <input
+                                                type="text"
+                                                list="csapat-lista"
+                                                value={cs}
+                                                onChange={e => {const n = [...csapatok]; n[i] = e.target.value; setCsapatok(n);}}
                                                 onClick={() => isNeeded && handleTeamClick(i)}
                                                 readOnly={isSelectedForSwap}
                                                 className={`flex-grow p-2 rounded border text-sm font-bold transition-all cursor-pointer ${
-                                                    isSelectedForSwap 
-                                                        ? 'bg-green-900/40 border-green-500 ring-2 ring-green-500' 
-                                                        : isError 
-                                                            ? 'bg-red-900/50 border-red-500' 
+                                                    isSelectedForSwap
+                                                        ? 'bg-green-900/40 border-green-500 ring-2 ring-green-500'
+                                                        : isError
+                                                            ? 'bg-red-900/50 border-red-500'
                                                             : 'bg-slate-800 border-slate-700 focus:border-blue-500'
-                                                }`} 
-                                                placeholder={`Csapat ${i+1}`} 
+                                                }`}
+                                                placeholder={`Csapat ${i+1}`}
                                                 disabled={!isNeeded}
                                             />
                                             {/* ÚJ: Csapat saját színválasztója */}
@@ -830,7 +933,7 @@
 
                             {/* --- TÁBLÁZAT --- */}
                             <div className="absolute top-[50mm] left-[8mm] right-[8mm] flex flex-col border-[2px] border-black shadow-sm">
-                                
+
                                 {/* TÁBLÁZAT FEJLÉC (Sötétszürke) */}
                                 <div className="flex bg-[#555555] text-white font-bold text-center items-stretch border-b-[2px] border-black text-[14px]">
                                     <div className="w-[30mm] flex items-center justify-center p-2 border-r border-black leading-tight">Bemelegítés<br/>kezdete</div>
@@ -862,7 +965,7 @@
                                                 </div>
                                             );
                                         }
-                                        
+
                                         if (row.tipus === 'rolba') {
                                             return (
                                                 <div key={i} className="flex bg-[#555555] text-white font-bold text-center items-stretch h-[9mm]">
@@ -884,19 +987,20 @@
                                             <div key={i} className={`flex text-black font-bold text-center items-stretch flex-1 ${rowBg}`}>
                                                 <div className="w-[30mm] flex items-center justify-center border-r border-black/40 text-[#b91c1c] text-[16px] py-1.5">{bemIdo}</div>
                                                 <div className="w-[30mm] flex items-center justify-center border-r border-black/40 text-[16px] py-1.5">{row.ido}</div>
-                                                
+
                                                 {palyaBetuk.slice(0, palyakSzama).map(rink => {
                                                     const matchRow = rinkSchedules[rink][i];
                                                     if (!matchRow || matchRow.tipus !== 'meccs') return <div key={rink} className="flex-1 border-r last:border-r-0 border-black/40"></div>;
 
                                                     const valosH = csapatok[manualOverrides[`${rink}-${i}-h`] ?? matchRow.h];
                                                     const valosV = csapatok[manualOverrides[`${rink}-${i}-v`] ?? matchRow.v];
-                                                    
+
                                                     const isTestver = !utkozesEngedelyezve && areSameClub(valosH, valosV);
                                                     const cellBg = isTestver ? 'bg-yellow-300/60 testver-jelzes' : 'bg-transparent'; // testver-jelzes: PDF-ben nem sárga
+                                                    const hibasCella = ellenorzes.hibasSorok[`${rink}-${i}`] ? ' hiba-jelzes' : ''; // sorsolás-ellenőrzés: piros keret (nyomtatásban eltűnik)
 
                                                     return (
-                                                        <div key={rink} className={`flex-1 flex border-r last:border-r-0 border-black/40 ${cellBg} text-[14px]`}>
+                                                        <div key={rink} className={`flex-1 flex border-r last:border-r-0 border-black/40 ${cellBg}${hibasCella} text-[14px]`}>
                                                             <div className="flex-1 flex items-center justify-center px-2 cursor-pointer hover:bg-blue-200 transition-colors py-1.5" onClick={() => handleTableTeamClick(rink, i, 'h')}>
                                                                 {isInvalidTeam(valosH) ? '' : valosH}
                                                             </div>
