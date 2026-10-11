@@ -235,6 +235,119 @@
                 return clean.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
             };
 
+            // --- MENTÉSI MAPPÁK (File System Access API) ---
+            // A kiválasztott mappa "fogantyúját" (handle) nem lehet JSON-ba tenni,
+            // ezért IndexedDB-be kerül. Mind a három app (jégkorong, inline, 3x3)
+            // ugyanazon az origin-en fut, ezért a beállítás KÖZÖS: amit itt beállítasz,
+            // azt a másik kettő is használja. Ha külön mappát akarsz nekik, a
+            // MAPPA_TAR nevébe írj app-nevet (pl. 'mappak_inline').
+            // Telefonon (iOS/Android) ez az API nincs meg -- ott a sima letöltés marad.
+            const MAPPA_DB = 'sorsolas-mappak';
+            const MAPPA_TAR = 'mappak';
+            const mappaTamogatott = typeof window !== 'undefined' && !!window.showDirectoryPicker;
+
+            const mappaDbNyit = () => new Promise((ok, hiba) => {
+                const k = indexedDB.open(MAPPA_DB, 1);
+                k.onupgradeneeded = () => k.result.createObjectStore(MAPPA_TAR);
+                k.onsuccess = () => ok(k.result);
+                k.onerror = () => hiba(k.error);
+            });
+
+            const mappaOlvas = async (kulcs) => {
+                try {
+                    const db = await mappaDbNyit();
+                    return await new Promise(ok => {
+                        const k = db.transaction(MAPPA_TAR, 'readonly').objectStore(MAPPA_TAR).get(kulcs);
+                        k.onsuccess = () => ok(k.result || null);
+                        k.onerror = () => ok(null);
+                    });
+                } catch (e) { return null; }
+            };
+
+            const mappaIr = async (kulcs, ertek) => {
+                try {
+                    const db = await mappaDbNyit();
+                    return await new Promise(ok => {
+                        const t = db.transaction(MAPPA_TAR, 'readwrite');
+                        t.objectStore(MAPPA_TAR).put(ertek, kulcs);
+                        t.oncomplete = () => ok(true);
+                        t.onerror = () => ok(false);
+                    });
+                } catch (e) { return false; }
+            };
+
+            // gep / drive: a két eltárolt mappa; aktivMappa: melyiket használja a MENTÉS
+            const [mappak, setMappak] = useState({ gep: null, drive: null });
+            const [aktivMappa, setAktivMappa] = useState('gep');
+            const [mentesJelzes, setMentesJelzes] = useState('');
+
+            // Induláskor visszaolvassuk a korábban beállított mappákat
+            useEffect(() => {
+                if (!mappaTamogatott) return;
+                (async () => {
+                    const g = await mappaOlvas('gep');
+                    const d = await mappaOlvas('drive');
+                    const a = await mappaOlvas('aktiv');
+                    setMappak({ gep: g || null, drive: d || null });
+                    // Ha a korábban aktív mappa közben eltűnt, a másikra váltunk
+                    setAktivMappa((a === 'drive' && d) ? 'drive' : (g ? 'gep' : (d ? 'drive' : 'gep')));
+                })();
+            }, []);
+
+            const mappaValaszt = async (melyik) => {
+                try {
+                    const handle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'sorsolas-' + melyik });
+                    await mappaIr(melyik, handle);
+                    await mappaIr('aktiv', melyik);
+                    setMappak(prev => ({ ...prev, [melyik]: handle }));
+                    setAktivMappa(melyik);
+                } catch (e) { /* a felhasználó bezárta a mappaválasztót - nincs teendő */ }
+            };
+
+            const mappaAktival = async (melyik) => {
+                if (!mappak[melyik]) return;
+                await mappaIr('aktiv', melyik);
+                setAktivMappa(melyik);
+            };
+
+            const mappaTorol = async (melyik) => {
+                await mappaIr(melyik, null);
+                setMappak(prev => ({ ...prev, [melyik]: null }));
+            };
+
+            // A JSON kiírása: ha van beállított mappa, egyenesen oda; különben letöltés.
+            // A letöltés a TARTALÉK -- telefonon mindig ez fut.
+            const jsonKiir = async (jsonStr, fajlNev) => {
+                const mappa = mappaTamogatott ? mappak[aktivMappa] : null;
+                if (mappa) {
+                    try {
+                        let jog = await mappa.queryPermission({ mode: 'readwrite' });
+                        if (jog !== 'granted') jog = await mappa.requestPermission({ mode: 'readwrite' });
+                        if (jog === 'granted') {
+                            const fh = await mappa.getFileHandle(fajlNev, { create: true });
+                            const iro = await fh.createWritable();
+                            await iro.write(jsonStr);
+                            await iro.close();
+                            setMentesJelzes(`✓ ${mappa.name} / ${fajlNev}`);
+                            setTimeout(() => setMentesJelzes(''), 5000);
+                            return;
+                        }
+                    } catch (e) {
+                        // Törölt mappa, megtagadott jog, bármi: megyünk a letöltésre
+                    }
+                }
+                const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url; a.download = fajlNev;
+                document.body.appendChild(a);   // iOS Safari: a be nem illesztett elem kattintása néha nem indít letöltést
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 10000);   // az azonnali felszabadítás megölheti a letöltést
+                setMentesJelzes(`⤓ ${fajlNev}`);
+                setTimeout(() => setMentesJelzes(''), 5000);
+            };
+
             // --- A REFORMÁLT RADAR (Ez váltja a régit!) ---
             useEffect(() => {
                 // Ha JSON betöltés van folyamatban, a Radar megáll és nem nyúl semmihez
@@ -303,13 +416,9 @@
             const handleSaveJSON = () => {
                 const dataToSave = { tornaAdatok, csapatok, csapatSzinek, manualOverrides };
                 const jsonStr = JSON.stringify(dataToSave, null, 2);
-                const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
-                const url = URL.createObjectURL(blob);
                 const rawName = `${tornaAdatok.sorszam}_${tornaAdatok.rendezo}`;
                 const safeName = cleanFileName(rawName) || 'sorsolas';
-                const a = document.createElement("a");
-                a.href = url; a.download = `${safeName}.json`; a.click();
-                URL.revokeObjectURL(url);
+                jsonKiir(jsonStr, `${safeName}.json`);   // beállított mappába, vagy letöltésként
             };
 
             const handleLoadJSON = (e) => {
@@ -888,6 +997,41 @@
                                     )
                                 })}
                             </section>
+
+
+                            {/* --- MENTÉSI MAPPA: hova menjen a JSON (telefonon nem látszik) --- */}
+                            {mappaTamogatott && (
+                                <div className="bg-slate-800 rounded-lg border border-slate-700 p-2 space-y-1">
+                                    <div className="text-slate-400 uppercase font-bold text-[10px] tracking-widest">📁 JSON mentési mappa</div>
+                                    {[['gep', 'Gép'], ['drive', 'Felhő']].map(([kulcs, cimke]) => {
+                                        const h = mappak[kulcs];
+                                        const aktiv = aktivMappa === kulcs && !!h;
+                                        return (
+                                            <div key={kulcs} className="flex items-center gap-1.5 text-[11px]">
+                                                <button onClick={() => h ? mappaAktival(kulcs) : mappaValaszt(kulcs)}
+                                                    title={h ? 'Mostantól ide mentsen' : 'Jelölj ki egy mappát'}
+                                                    className={`w-3.5 h-3.5 shrink-0 rounded-full border-2 transition ${aktiv ? 'bg-emerald-500 border-emerald-300' : 'border-slate-500 hover:border-slate-300'}`} />
+                                                <span className="w-9 shrink-0 text-slate-400 font-bold">{cimke}</span>
+                                                <span className={`flex-grow truncate ${h ? (aktiv ? 'text-emerald-300 font-bold' : 'text-slate-300') : 'text-slate-600 italic'}`} title={h ? h.name : ''}>
+                                                    {h ? h.name : 'nincs beállítva'}
+                                                </span>
+                                                <button onClick={() => mappaValaszt(kulcs)} title="Mappa kiválasztása / cseréje"
+                                                    className="text-slate-400 hover:text-white px-1 font-bold shrink-0">✎</button>
+                                                {h && <button onClick={() => mappaTorol(kulcs)} title="Beállítás törlése"
+                                                    className="text-red-400 hover:text-red-300 px-1 font-bold shrink-0">✕</button>}
+                                            </div>
+                                        );
+                                    })}
+                                    <div className="text-[9px] text-slate-500 leading-tight pt-0.5">
+                                        {mappak[aktivMappa]
+                                            ? 'A MENTÉS egyenesen ide írja a JSON-t, letöltés nélkül.'
+                                            : 'Nincs aktív mappa — a MENTÉS sima letöltés lesz.'}
+                                    </div>
+                                </div>
+                            )}
+                            {mentesJelzes && (
+                                <div className="text-emerald-400 text-[11px] text-center font-bold truncate" title={mentesJelzes}>{mentesJelzes}</div>
+                            )}
 
                             {/* --- ÚJ: MENTÉS ÉS BETÖLTÉS GOMBOK --- */}
                             <div className="flex gap-2 pt-2">
