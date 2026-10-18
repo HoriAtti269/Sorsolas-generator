@@ -119,6 +119,19 @@
 
             const [kivalasztottCsapat, setKivalasztottCsapat] = useState(null);
             const [manualOverrides, setManualOverrides] = useState({});
+
+            // --- VISSZA GOMB: minden csere előtt pillanatkép (legfeljebb 30 lépés) ---
+            const [elozmenyek, setElozmenyek] = useState([]);
+            const pillanatkep = () => setElozmenyek(prev => [...prev.slice(-29), { csapatok: [...csapatok], csapatSzinek: [...csapatSzinek], manualOverrides: { ...manualOverrides } }]);
+            const handleVissza = () => {
+                if (elozmenyek.length === 0) return;
+                const utolso = elozmenyek[elozmenyek.length - 1];
+                setCsapatok(utolso.csapatok);
+                setCsapatSzinek(utolso.csapatSzinek);
+                setManualOverrides(utolso.manualOverrides);
+                setElozmenyek(prev => prev.slice(0, -1));
+                setKivalasztottCsapat(null);
+            };
             const [isJSONLoading, setIsJSONLoading] = useState(false);
 
             const cleanFileName = (text) => {
@@ -289,6 +302,7 @@
                 setUtkozesEngedelyezve(false);
                 setKivalasztottCsapat(null);
                 setManualOverrides({});
+                setElozmenyek([]); // új torna: a régi cseréket nem lehet visszahozni
 
                 const rawLines = text.split('\n').map(l => l.trim()).filter(l => l !== '');
                 if (rawLines.length === 0) return;
@@ -362,6 +376,7 @@
                     try {
                         const data = JSON.parse(ev.target.result);
                         setIsJSONLoading(true);
+                        setElozmenyek([]); // betöltött torna: tiszta lap a Vissza gombnak
                         if (data.csapatok) setCsapatok(data.csapatok);
                         setCsapatSzinek(data.csapatSzinek || Array(8).fill('#000000'));
                         if (data.tornaAdatok) setTornaAdatok(data.tornaAdatok);
@@ -386,6 +401,7 @@
                 if (kivalasztottCsapat === null) setKivalasztottCsapat(index);
                 else {
                     if (kivalasztottCsapat !== index) {
+                        pillanatkep(); // Vissza gombhoz
                         const ujCsapatok = [...csapatok];
                         const temp = ujCsapatok[kivalasztottCsapat];
                         ujCsapatok[kivalasztottCsapat] = ujCsapatok[index];
@@ -407,6 +423,7 @@
 
             const handleTableTeamClick = (rink, rowIndex, side) => {
                 if (kivalasztottCsapat !== null) {
+                    pillanatkep(); // Vissza gombhoz
                     setManualOverrides(prev => ({ ...prev, [`${rink}-${rowIndex}-${side}`]: kivalasztottCsapat }));
                     setKivalasztottCsapat(null);
                 }
@@ -692,7 +709,14 @@
                             </section>
 
                             <section className="pt-4 border-t border-slate-700">
-                                <label className="block text-slate-400 uppercase font-bold mb-3 text-xs">Résztvevő Csapatok</label>
+                                <div className="flex justify-between items-center mb-3">
+                                    <label className="block text-slate-400 uppercase font-bold text-xs">Résztvevő Csapatok</label>
+                                    {/* VISSZA GOMB: az utolsó csere visszavonása */}
+                                    <button onClick={handleVissza} disabled={elozmenyek.length === 0} title="Az utolsó csere visszavonása"
+                                        className={`text-xs font-bold px-2 py-1 rounded transition ${elozmenyek.length === 0 ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-500 text-white'}`}>
+                                        ↶ Vissza{elozmenyek.length > 0 ? ` (${elozmenyek.length})` : ''}
+                                    </button>
+                                </div>
                                 {csapatok.map((cs, i) => {
                                     const maxCsapat = parseInt(tornaAdatok.szint.match(/^\d+/)?.[0] || 8);
                                     const isNeeded = i < maxCsapat;
@@ -777,8 +801,8 @@
                                 {/* Oszlop fejlécek */}
                                 <div className="flex bg-[#0a0a5c] text-white font-bold text-center border-t-[1px] border-[#0a0a5c]">
                                     <div className="w-[18mm] border-r-[1px] border-[#0a0a5c]"></div>
-                                    {palyaBetuk.slice(0, palyakSzama).map(rink => (
-                                        <div key={rink} className="flex-1 py-1.5 border-l-[1px] border-[#1e1e80]">
+                                    {palyaBetuk.slice(0, palyakSzama).map((rink, pIdx) => (
+                                        <div key={rink} className={`flex-1 py-1.5 ${pIdx > 0 ? 'border-l-[4px] border-white' : 'border-l-[1px] border-[#1e1e80]'}`}>
                                             {rink} pálya {rink === 'A' ? <span className="font-normal">(rolba bejáró)</span> : ''}
                                         </div>
                                     ))}
@@ -814,13 +838,21 @@
                                     if (row.kor === 'ZARAS') {
                                         return (
                                             <div key={i} className="flex items-stretch border-t-[1px] border-[#0a0a5c]">
-                                                <div className="w-[18mm] bg-[#0a0a5c] text-white font-bold flex justify-center items-center py-1.5 border-r-[1px] border-[#0a0a5c]"></div>
+                                                <div className="w-[18mm] bg-[#0a0a5c] text-white font-bold flex justify-center items-center py-1.5 border-r-[1px] border-[#0a0a5c]">
+                                                    {ido}
+                                                </div>
                                                 <div className="flex-1 bg-[#0a0a5c] text-white font-bold flex justify-center items-center py-1.5">
                                                     Torna vége
                                                 </div>
                                             </div>
                                         );
                                     }
+
+                                    // --- ZEBRA (mint a jégkorongban): rolba után újraindul, páros sor átlátszó, páratlan szürkés ---
+                                    let lastRolbaIdx = -1;
+                                    for (let k = 0; k < i; k++) { if (msz[k].kor === 'ROLBA') lastRolbaIdx = k; }
+                                    const relativIdx = i - (lastRolbaIdx + 1);
+                                    const zebraBg = relativIdx % 2 === 0 ? 'transparent' : 'rgba(203, 213, 225, 0.5)';
 
                                     return (
                                         <div key={i} className={`flex items-stretch border-t-[1px] border-gray-400 bg-white ${alloLap ? 'min-h-[11mm]' : 'min-h-[10mm]'}`}>
@@ -830,14 +862,16 @@
 
                                             {palyaBetuk.slice(0, palyakSzama).map(rink => {
                                                 const meccs = row.meccsek[palyaBetuk.indexOf(rink)];
-                                                if (!meccs) return <div key={rink} className="flex-1 border-l-[1px] border-gray-400"></div>;
+                                                // Pályák között vastag elválasztó, az A pálya előtt marad a vékony
+                                                const palyaHatar = palyaBetuk.indexOf(rink) > 0 ? 'border-l-[4px] border-[#0a0a5c]' : 'border-l-[1px] border-gray-400';
+                                                if (!meccs) return <div key={rink} className={`flex-1 ${palyaHatar}`} style={{ backgroundColor: zebraBg }}></div>;
 
                                                 const valosH = csapatok[manualOverrides[`${rink}-${i}-h`] ?? meccs.h];
                                                 const valosV = csapatok[manualOverrides[`${rink}-${i}-v`] ?? meccs.v];
                                                 const isTestver = !utkozesEngedelyezve && areSameClub(valosH, valosV);
 
                                                 return (
-                                                    <div key={rink} className={`flex-1 flex border-l-[1px] border-gray-400 ${isTestver ? 'bg-yellow-200 testver-jelzes' : ''}${ellenorzes.hibasSorok[`${rink}-${i}`] ? ' hiba-jelzes' : ''}`}>
+                                                    <div key={rink} className={`flex-1 flex ${palyaHatar} ${isTestver ? 'testver-jelzes' : ''}${ellenorzes.hibasSorok[`${rink}-${i}`] ? ' hiba-jelzes' : ''}`} style={{ backgroundColor: isTestver ? '#fef08a' : zebraBg, '--zebra': zebraBg, WebkitPrintColorAdjust: 'exact' }}>
                                                         <div className="flex-1 w-0 min-w-0 flex justify-center items-center text-center p-1 break-words cursor-pointer hover:bg-blue-100" onClick={() => handleTableTeamClick(rink, i, 'h')} style={getCsapatStilus(valosH, csapatSzinek[manualOverrides[`${rink}-${i}-h`] ?? meccs.h])}>
                                                             {isInvalidTeam(valosH) ? '' : valosH}
                                                         </div>
