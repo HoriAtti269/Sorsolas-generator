@@ -27,6 +27,8 @@
                 overflow: hidden !important; page-break-after: avoid !important; page-break-inside: avoid !important;
                 background-color: white !important; position: relative;
             }
+            /* 1 pályás sablon: álló A4 (a @page-et a program teszi hozzá, ha kell) */
+            #nyomtatasi-terulet.allo-lap { width: 210mm !important; height: 297mm !important; }
         }
         /* Görgetősáv dizájn a bal oldali menühöz */
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
@@ -105,12 +107,12 @@
                 datum: '', kezdes: '',
                 rendezo: '', helyszin: '',
                 info: '', infoSzin: '#dc2626', palyaTipus: '2_palya',
-                egyediMeccsPerc: '40', // U12-nél általában hosszabb egy blokk
-                egyediSzunetPerc: '10' // Rolba alapértelmezett
+                egyediMeccsPerc: '30', // 2x12 perc + 1 perc térfélcsere + 5 perc kézfogás/levonulás (a bemelegítés külön jön)
+                egyediSzunetPerc: '15' // Rolba alapértelmezett
             });
 
             const [csapatok, setCsapatok] = useState(['', '', '', '', '', '', '', '']);
-            const [csapatSzinek, setCsapatSzinek] = useState(Array(8).fill('#1e293b'));
+            const [csapatSzinek, setCsapatSzinek] = useState(Array(8).fill('#000000')); // fekete, mint a 3x3 poszter alapszövege
             const [pastedData, setPastedData] = useState('');
             const [utkozesEngedelyezve, setUtkozesEngedelyezve] = useState(false);
             const fileInputRef = useRef(null);
@@ -238,11 +240,49 @@
                 setTimeout(() => setMentesJelzes(''), 5000);
             };
 
+            // --- TERVEZET-BEOLVASÁS: SEGÉDFÜGGVÉNYEK ---
+            // Az éves tornatervből 1 oszlopot másolsz be: város, dátum (pl. "08.nov"), rendező, többi csapat.
+            // Időpont még nincs, ezért a kezdés 0:00 -> a csapatok így is látják, milyen hosszú a torna.
+            const HONAPOK = { jan: 1, feb: 2, mar: 3, apr: 4, maj: 5, jun: 6, jul: 7, aug: 8, sze: 9, okt: 10, nov: 11, dec: 12 };
+            const ekezetNelkul = (s) => s.toLowerCase().replace(/á/g, 'a').replace(/é/g, 'e').replace(/í/g, 'i').replace(/[óöő]/g, 'o').replace(/[úüű]/g, 'u');
+
+            // "08.nov", "8.nov.", "nov.08", "nov. 8.", "november 8" -> "2026-11-08"; ha nem dátum: null
+            // Év: szezon szerint (aug-dec = szezon kezdőéve, jan-júl = a következő év)
+            const tervezetDatum = (sor) => {
+                const s = ekezetNelkul(sor.trim());
+                let nap, hoNev;
+                let m = s.match(/^(\d{1,2})\.?\s*([a-z]{3,})\.?$/);
+                if (m) { nap = parseInt(m[1], 10); hoNev = m[2]; }
+                else {
+                    m = s.match(/^([a-z]{3,})\.?\s*(\d{1,2})\.?$/);
+                    if (!m) return null;
+                    hoNev = m[1]; nap = parseInt(m[2], 10);
+                }
+                const ho = HONAPOK[hoNev.slice(0, 3)];
+                if (!ho || nap < 1 || nap > 31) return null;
+                const ma = new Date();
+                const szezonKezdoEv = (ma.getMonth() + 1) >= 8 ? ma.getFullYear() : ma.getFullYear() - 1;
+                const ev = ho >= 8 ? szezonKezdoEv : szezonKezdoEv + 1;
+                return `${ev}-${String(ho).padStart(2, '0')}-${String(nap).padStart(2, '0')}`;
+            };
+
+            // Tervezet-formátum? Ha nem az (pl. van "1. Csapat" sor, teljes dátum vagy időpont), null -> marad a régi beolvasás
+            const tervezetFelismeres = (sorok) => {
+                const cellak = sorok.map(l => l.split('\t')[0].trim()).filter(c => c !== '');
+                if (cellak.some(c => /^\d{1,2}[\.\)]\s*\S/.test(c) && !tervezetDatum(c))) return null;
+                if (cellak.some(c => /\d{4}\.\d{2}\.\d{2}/.test(c) || /^\d{1,2}:\d{2}$/.test(c))) return null;
+                const dIdx = cellak.findIndex(c => tervezetDatum(c));
+                if (dIdx === -1) return null;
+                const csapatLista = cellak.slice(dIdx + 1, dIdx + 9);
+                if (csapatLista.length === 0) return null;
+                return { varos: dIdx > 0 ? cellak[dIdx - 1] : '', datum: tervezetDatum(cellak[dIdx]), csapatLista };
+            };
+
             // Varázsdoboz beolvasó rutin (egyszerűsítve)
             const handleExcelPaste = (e) => {
                 const text = e.target.value;
                 if (!text) return;
-                let ujAdatok = { ...tornaAdatok, info: '' };
+                let ujAdatok = { ...tornaAdatok, info: '', rendezo: '' }; // rendezo: ne maradjon itt egy korábbi tervezet rendezője
                 let ujCsapatok = ['', '', '', '', '', '', '', ''];
                 let talaltCsapatokSzama = 0;
 
@@ -252,6 +292,39 @@
 
                 const rawLines = text.split('\n').map(l => l.trim()).filter(l => l !== '');
                 if (rawLines.length === 0) return;
+
+                // --- TERVEZET-ÁG: éves tornaterv (1 oszlop, nincs időpont). Ha nem ilyen, megy tovább a régi beolvasás. ---
+                const tervezet = tervezetFelismeres(rawLines);
+                if (tervezet) {
+                    tervezet.csapatLista.forEach((nev, idx) => { ujCsapatok[idx] = nev; });
+                    const csapatDb = tervezet.csapatLista.length;
+
+                    // Helyszín: ha a város pontosan egy csarnoknévvel kezdődik (Ajka -> Ajka Jégcsarnok), azt írjuk be
+                    const varosNagy = tervezet.varos.toUpperCase();
+                    const talalat = varosNagy ? csarnokNevekLista.filter(n => n.toUpperCase().startsWith(varosNagy)) : [];
+                    const helyszin = talalat.length === 1 ? talalat[0] : tervezet.varos;
+
+                    // Kispálya vagy nagypálya: csarnokAdatbazis, a szavak ELEJÉN keresve (mint a jégkorongban)
+                    const helyszinSzavak = (tervezet.varos + ' ' + helyszin).toUpperCase().split(/[^A-ZÁÉÍÓÖŐÚÜŰ]+/).filter(sz => sz !== '');
+                    let kapacitas = 0;
+                    for (let entry of csarnokAdatbazis) {
+                        if (entry.kulcsszavak.some(k => helyszinSzavak.some(sz => sz.startsWith(k.toUpperCase())))) { kapacitas = entry.kapacitas; break; }
+                    }
+                    const ujSzint = `${csapatDb}cs_4m_${kapacitas === 1 ? '1p' : '2p_side'}`;
+
+                    setTornaAdatok({
+                        ...ujAdatok,
+                        korosztaly: 'U12 3x3', sorszam: '',
+                        datum: tervezet.datum, kezdes: '00:00',
+                        rendezo: tervezet.csapatLista[0], helyszin,
+                        szint: sablonAdatbazis[ujSzint] ? ujSzint : tornaAdatok.szint
+                    });
+                    setCsapatok(ujCsapatok);
+                    setCsapatSzinek(Array(8).fill('#000000'));
+                    if (!sablonAdatbazis[ujSzint]) alert(`${csapatDb} csapatra nincs 3x3 sablon (4, 5 vagy 6 csapat lehet). A sablont válaszd ki kézzel!`);
+                    setTimeout(() => setPastedData(''), 100);
+                    return;
+                }
 
                 // Egyszerű adatkivétel
                 for (let i = 0; i < rawLines.length; i++) {
@@ -272,10 +345,13 @@
                 setTimeout(() => setPastedData(''), 100);
             };
 
+            // Fájlnév sorszám nélkül (tervezet): "U12 3x3_Rendező" ékezettel - a JSON és a PDF is ezt kapja
+            const tervezetFajlNev = () => `${tornaAdatok.korosztaly}_${tornaAdatok.rendezo || csapatok[0] || ''}`.replace(/[^a-z0-9áéíóöőúüű _\-]/gi, '').replace(/\s+/g, ' ').trim();
+
             const handleSaveJSON = () => {
                 const dataToSave = { tornaAdatok, csapatok, csapatSzinek, manualOverrides };
                 const jsonStr = JSON.stringify(dataToSave, null, 2);
-                const safeName = cleanFileName(tornaAdatok.sorszam || '3x3_torna');
+                const safeName = tornaAdatok.sorszam ? cleanFileName(tornaAdatok.sorszam) : (tervezetFajlNev() || '3x3_torna');
                 jsonKiir(jsonStr, `${safeName}.json`);   // beállított mappába, vagy letöltésként
             };
 
@@ -287,6 +363,7 @@
                         const data = JSON.parse(ev.target.result);
                         setIsJSONLoading(true);
                         if (data.csapatok) setCsapatok(data.csapatok);
+                        setCsapatSzinek(data.csapatSzinek || Array(8).fill('#000000'));
                         if (data.tornaAdatok) setTornaAdatok(data.tornaAdatok);
                         setTimeout(() => { if (data.manualOverrides) setManualOverrides(data.manualOverrides); setIsJSONLoading(false); }, 150);
                     } catch (err) { alert("Hiba a fájl beolvasásakor!"); }
@@ -297,7 +374,9 @@
             // --- OKOS PDF NYOMTATÁS: fájlnév = sorszám + rendező (ha nincs rendező, az 1. csapat), ékezettel ---
             const handleSmartPrint = () => {
                 const originalTitle = document.title;
-                const safeName = `${tornaAdatok.sorszam} ${tornaAdatok.rendezo || csapatok[0] || ''}`.replace(/[^a-z0-9áéíóöőúüű \-]/gi, '').replace(/\s+/g, ' ').trim();
+                const safeName = tornaAdatok.sorszam
+                    ? `${tornaAdatok.sorszam} ${tornaAdatok.rendezo || csapatok[0] || ''}`.replace(/[^a-z0-9áéíóöőúüű \-]/gi, '').replace(/\s+/g, ' ').trim()
+                    : tervezetFajlNev();   // nincs sorszám (tervezet): "U12 3x3_Rendező"
                 if (safeName) document.title = safeName;
                 window.print();
                 setTimeout(() => { document.title = originalTitle; }, 1000);
@@ -312,6 +391,14 @@
                         ujCsapatok[kivalasztottCsapat] = ujCsapatok[index];
                         ujCsapatok[index] = temp;
                         setCsapatok(ujCsapatok);
+
+                        // A csapat színe megy a csapattal (mint a jégkorongban)
+                        const ujSzinek = [...csapatSzinek];
+                        const tempSzin = ujSzinek[kivalasztottCsapat];
+                        ujSzinek[kivalasztottCsapat] = ujSzinek[index];
+                        ujSzinek[index] = tempSzin;
+                        setCsapatSzinek(ujSzinek);
+
                         setManualOverrides({});
                     }
                     setKivalasztottCsapat(null);
@@ -326,14 +413,39 @@
             };
 
             // SABLONOK
+            // Régi (2-3 meccses) sablonok - tartalék:
+            // '4cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { kor: 'ROLBA' }, { meccsek: [{h:2,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:2}] }, { kor: 'ROLBA' }, { meccsek: [{h:1,v:3}] }, { kor: 'ZARAS' }],
+            // '4cs_4m_2p_side': [{ meccsek: [{h:0,v:1}, {h:2,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:2}, {h:1,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:3}, {h:1,v:2}] }, { kor: 'ZARAS' }]
+
+            // U12 3x3 SABLONOK: minden csapat 4 meccs, legfeljebb 2 egymás után (a rolba pihenő),
+            // az első meccs csapatai lehetőleg nem játszanak az utolsóban.
+            // 6 csapatnál soha nem találkozik: 1-6, 2-5, 3-4 -> ide tedd a testvércsapatokat!
+            // 1 pálya = kispálya (álló lap), 2-3 pálya = nagypálya (fekvő lap)
             const sablonAdatbazis = {
-                '4cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { kor: 'ROLBA' }, { meccsek: [{h:2,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:2}] }, { kor: 'ROLBA' }, { meccsek: [{h:1,v:3}] }, { kor: 'ZARAS' }],
-                '4cs_4m_2p_side': [{ meccsek: [{h:0,v:1}, {h:2,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:2}, {h:1,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:3}, {h:1,v:2}] }, { kor: 'ZARAS' }]
+                '4cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:3}] }, { meccsek: [{h:0,v:3}] }, { meccsek: [{h:1,v:2}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:0,v:2}] }, { meccsek: [{h:1,v:3}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:1,v:0}] }, { meccsek: [{h:3,v:2}] }, { kor: 'ZARAS' }],
+                '4cs_4m_2p_side': [{ meccsek: [{h:0,v:1}, {h:2,v:3}] }, { meccsek: [{h:0,v:2}, {h:1,v:3}] }, { kor: 'ROLBA' },
+                                   { meccsek: [{h:0,v:3}, {h:1,v:2}] }, { meccsek: [{h:1,v:0}, {h:3,v:2}] }, { kor: 'ZARAS' }],
+                '5cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:3}] }, { meccsek: [{h:0,v:4}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:1,v:3}] }, { meccsek: [{h:2,v:4}] }, { meccsek: [{h:0,v:3}] }, { meccsek: [{h:1,v:2}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:1,v:4}] }, { meccsek: [{h:0,v:2}] }, { meccsek: [{h:3,v:4}] }, { kor: 'ZARAS' }],
+                '5cs_4m_2p_side': [{ meccsek: [{h:0,v:1}, {h:2,v:3}] }, { meccsek: [{h:0,v:2}, {h:1,v:4}] }, { kor: 'ROLBA' },
+                                   { meccsek: [{h:0,v:3}, {h:2,v:4}] }, { meccsek: [{h:1,v:2}, {h:3,v:4}] }, { kor: 'ROLBA' },
+                                   { meccsek: [{h:0,v:4}, {h:1,v:3}] }, { kor: 'ZARAS' }],
+                '6cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:4}] }, { meccsek: [{h:1,v:5}] }, { meccsek: [{h:3,v:4}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:3,v:5}] }, { meccsek: [{h:1,v:2}] }, { meccsek: [{h:0,v:4}] }, { meccsek: [{h:1,v:3}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:0,v:2}] }, { meccsek: [{h:4,v:5}] }, { meccsek: [{h:0,v:3}] }, { meccsek: [{h:2,v:5}] }, { kor: 'ZARAS' }],
+                '6cs_4m_2p_side': [{ meccsek: [{h:0,v:1}, {h:2,v:4}] }, { meccsek: [{h:0,v:2}, {h:3,v:5}] }, { meccsek: [{h:1,v:3}, {h:4,v:5}] }, { kor: 'ROLBA' },
+                                   { meccsek: [{h:0,v:4}, {h:1,v:2}] }, { meccsek: [{h:1,v:5}, {h:3,v:4}] }, { meccsek: [{h:0,v:3}, {h:2,v:5}] }, { kor: 'ZARAS' }],
+                // 3 pálya: egymás utáni meccsnél a csapat ugyanazon vagy a szomszéd pályán marad (A-ról nem megy C-re)
+                '6cs_4m_3p_side': [{ meccsek: [{h:0,v:1}, {h:2,v:4}, {h:3,v:5}] }, { meccsek: [{h:0,v:2}, {h:1,v:5}, {h:3,v:4}] }, { kor: 'ROLBA' },
+                                   { meccsek: [{h:0,v:3}, {h:1,v:2}, {h:4,v:5}] }, { meccsek: [{h:1,v:3}, {h:0,v:4}, {h:2,v:5}] }, { kor: 'ZARAS' }]
             };
 
-            const meccsPerc = tornaAdatok.egyediMeccsPerc ? parseInt(tornaAdatok.egyediMeccsPerc, 10) : 40;
-            const rolbaPerc = tornaAdatok.egyediSzunetPerc ? parseInt(tornaAdatok.egyediSzunetPerc, 10) : 10;
-            const bemelegitesPerc = 5;
+            const meccsPerc = tornaAdatok.egyediMeccsPerc ? parseInt(tornaAdatok.egyediMeccsPerc, 10) : 30;
+            const rolbaPerc = tornaAdatok.egyediSzunetPerc ? parseInt(tornaAdatok.egyediSzunetPerc, 10) : 15;
+            const bemelegitesPerc = 5; // minden meccs előtt
 
             const msz = useMemo(() => sablonAdatbazis[tornaAdatok.szint] || sablonAdatbazis['4cs_4m_2p_side'], [tornaAdatok.szint]);
             const palyakSzama = useMemo(() => {
@@ -348,11 +460,11 @@
                 let korokSzama = 0; let rolbakSzama = 0;
                 for(let i=0; i<korIndex; i++) { if(msz[i].kor === 'ROLBA') rolbakSzama++; else if (msz[i].kor !== 'ZARAS') korokSzama++; }
                 let [ora, perc] = (tornaAdatok.kezdes || '00:00').split(':').map(Number);
-                let ossz = ora * 60 + perc + (korokSzama * meccsPerc) + (rolbakSzama * rolbaPerc) + bemelegitesPerc;
-
-                if (isBemelegites && korIndex === 0) {
-                    ossz -= bemelegitesPerc;
-                }
+                // Minden meccs előtt bemelegítés: egy meccs-hely = bemelegítés + meccs (+kézfogás). A meccssor a MECCS kezdését mutatja,
+                // a rolba- és záró sor a lefutott meccsek végét (oda nem jön bemelegítés).
+                let ossz = ora * 60 + perc + (korokSzama * (meccsPerc + bemelegitesPerc)) + (rolbakSzama * rolbaPerc);
+                const meccsSor = msz[korIndex] && !msz[korIndex].kor;
+                if (meccsSor && !isBemelegites) ossz += bemelegitesPerc;
 
                 return `${Math.floor(ossz / 60)}:${(ossz % 60).toString().padStart(2, '0')}`;
             };
@@ -466,6 +578,38 @@
 
             const isInvalidTeam = (nev) => !nev || nev.toUpperCase() === 'SZABAD';
 
+            // --- LAPÁLLÁS ÉS BETŰMÉRET ---
+            // 1 pálya: álló A4, 2-3 pálya: fekvő A4
+            const alloLap = palyakSzama === 1;
+            // Alap betűméret és egy csapatnévnek jutó szélesség (px) pályaszám szerint
+            const alapBetu = palyakSzama === 1 ? 18 : (palyakSzama === 3 ? 13 : 15);
+            const nevHely = palyakSzama === 1 ? 290 : (palyakSzama === 3 ? 135 : 215);
+
+            // Mérőszalag (mint a jégkorongban): a túl hosszú szót kisebb betűvel írjuk, legfeljebb 65%-ig
+            const getCsapatStilus = (nev, szin) => {
+                const alap = { fontSize: `${alapBetu}px`, lineHeight: '1.1', color: szin || '#000000' };
+                if (isInvalidTeam(nev)) return alap;
+                let maxSuly = 0;
+                nev.split(' ').forEach(szo => {
+                    let suly = 0;
+                    for (let k = 0; k < szo.length; k++) {
+                        const c = szo[k];
+                        if (c.toUpperCase() === c && c.match(/[A-ZÁÉÍÓÖŐÚÜŰ]/)) suly += 1.3;
+                        else if (c === 'm' || c === 'w') suly += 1.3;
+                        else if ('iltfj.-'.includes(c)) suly += 0.5;
+                        else suly += 1.0;
+                    }
+                    if (suly > maxSuly) maxSuly = suly;
+                });
+                const becsultPx = maxSuly * alapBetu * 0.55;
+                if (becsultPx > nevHely) {
+                    let arany = (nevHely / becsultPx) * 0.96;
+                    if (arany < 0.65) arany = 0.65;
+                    return { ...alap, fontSize: `${(alapBetu * arany).toFixed(1)}px`, lineHeight: '1.05' };
+                }
+                return alap;
+            };
+
             return (
                 <div className="flex flex-col md:flex-row h-screen font-sans overflow-hidden bg-slate-200">
 
@@ -522,8 +666,17 @@
 
                                 <div className="flex gap-2">
                                     <select value={tornaAdatok.szint} onChange={e => setTornaAdatok({...tornaAdatok, szint: e.target.value})} className="w-full p-2 rounded text-sm font-bold border border-slate-600 bg-slate-700 outline-none">
-                                        <option value="4cs_4m_1p">4 Csapat / 1 Pálya (Egymás alatt)</option>
-                                        <option value="4cs_4m_2p_side">4 Csapat / 2 Pálya (Egymás mellett)</option>
+                                        <optgroup label="Kispálya (1 pálya, álló lap)">
+                                            <option value="4cs_4m_1p">4 Csapat / 1 Pálya</option>
+                                            <option value="5cs_4m_1p">5 Csapat / 1 Pálya</option>
+                                            <option value="6cs_4m_1p">6 Csapat / 1 Pálya</option>
+                                        </optgroup>
+                                        <optgroup label="Nagypálya (fekvő lap)">
+                                            <option value="4cs_4m_2p_side">4 Csapat / 2 Pálya</option>
+                                            <option value="5cs_4m_2p_side">5 Csapat / 2 Pálya</option>
+                                            <option value="6cs_4m_2p_side">6 Csapat / 2 Pálya</option>
+                                            <option value="6cs_4m_3p_side">6 Csapat / 3 Pálya</option>
+                                        </optgroup>
                                     </select>
                                     <input type="number" placeholder="Meccs" className="w-16 bg-slate-700 text-white p-2 rounded text-sm font-bold border border-slate-600 text-center" value={tornaAdatok.egyediMeccsPerc} onChange={(e) => setTornaAdatok({ ...tornaAdatok, egyediMeccsPerc: e.target.value })} title="Meccs (perc)"/>
                                     <input type="number" placeholder="Rolba" className="w-16 bg-slate-700 text-white p-2 rounded text-sm font-bold border border-slate-600 text-center" value={tornaAdatok.egyediSzunetPerc} onChange={(e) => setTornaAdatok({ ...tornaAdatok, egyediSzunetPerc: e.target.value })} title="Rolba (perc)"/>
@@ -549,6 +702,8 @@
                                         <div key={i} className={`flex items-center gap-2 mb-2 ${!isNeeded ? 'opacity-30' : ''}`}>
                                             <span className="w-5 text-center text-slate-500 font-black text-sm">{i+1}</span>
                                             <input type="text" list="csapat-lista" value={cs} onChange={e => {const n = [...csapatok]; n[i] = e.target.value; setCsapatok(n);}} onClick={() => isNeeded && handleTeamClick(i)} readOnly={isSelectedForSwap} className={`flex-grow p-2 rounded border text-sm font-bold transition-all cursor-pointer ${isSelectedForSwap ? 'bg-green-900/40 border-green-500 ring-2 ring-green-500' : 'bg-slate-800 border-slate-700 focus:border-blue-500'}`} placeholder={`Csapat ${i+1}`} disabled={!isNeeded} />
+                                            {/* Csapat saját színválasztója (mint a jégkorongban) */}
+                                            <input type="color" value={csapatSzinek[i]} onChange={e => {const n = [...csapatSzinek]; n[i] = e.target.value; setCsapatSzinek(n);}} className="w-8 h-8 p-0 border-0 rounded cursor-pointer bg-transparent shrink-0" disabled={!isNeeded} title="Csapat színének módosítása"/>
                                         </div>
                                     )
                                 })}
@@ -601,7 +756,9 @@
 
                     {/* --- 4. BLOKK: JOBB OLDAL (U12 3x3 DESIGN) --- */}
                     <div className="flex-grow overflow-auto flex flex-col items-center p-4 bg-slate-500 print:p-0 print:bg-white custom-scrollbar">
-                        <div id="nyomtatasi-terulet" className="bg-white w-[297mm] h-[210mm] relative shrink-0 overflow-hidden text-black font-sans flex flex-col items-center">
+                        {/* 1 pályás sablon: álló A4 lap a nyomtatásban is */}
+                        {alloLap && <style>{'@media print { @page { size: A4 portrait; margin: 0; } }'}</style>}
+                        <div id="nyomtatasi-terulet" className={`bg-white ${alloLap ? 'w-[210mm] h-[297mm] allo-lap' : 'w-[297mm] h-[210mm]'} relative shrink-0 overflow-hidden text-black font-sans flex flex-col items-center`}>
 
                             {/* Felső 3x3 Logó */}
                             <div className="w-full h-[60mm] flex justify-center items-center mt-2 mb-2">
@@ -610,7 +767,7 @@
                             </div>
 
                             {/* Táblázat konténer */}
-                            <div className="w-[280mm] border-[2px] border-[#0a0a5c] flex flex-col shadow-sm">
+                            <div className={`${alloLap ? 'w-[186mm]' : 'w-[280mm]'} border-[2px] border-[#0a0a5c] flex flex-col shadow-sm`}>
 
                                 {/* Fő fejléc */}
                                 <div className="bg-[#0a0a5c] text-white font-bold text-center py-2 text-[18px]">
@@ -633,7 +790,7 @@
                                         {getIdopont(0, true)}
                                     </div>
                                     <div className="flex-1 bg-[#cc0000] text-white font-bold uppercase flex justify-center items-center tracking-wider text-[16px]">
-                                        Bemelegítés {bemelegitesPerc} PERC
+                                        Bemelegítés {bemelegitesPerc} PERC (minden mérkőzés előtt)
                                     </div>
                                 </div>
 
@@ -666,7 +823,7 @@
                                     }
 
                                     return (
-                                        <div key={i} className="flex items-stretch border-t-[1px] border-gray-400 bg-white min-h-[10mm]">
+                                        <div key={i} className={`flex items-stretch border-t-[1px] border-gray-400 bg-white ${alloLap ? 'min-h-[11mm]' : 'min-h-[10mm]'}`}>
                                             <div className="w-[18mm] bg-[#0a0a5c] text-white font-bold flex justify-center items-center py-1.5 border-r-[1px] border-[#0a0a5c]">
                                                 {ido}
                                             </div>
@@ -681,13 +838,13 @@
 
                                                 return (
                                                     <div key={rink} className={`flex-1 flex border-l-[1px] border-gray-400 ${isTestver ? 'bg-yellow-200 testver-jelzes' : ''}${ellenorzes.hibasSorok[`${rink}-${i}`] ? ' hiba-jelzes' : ''}`}>
-                                                        <div className="flex-1 flex justify-center items-center text-center p-1 text-[15px] cursor-pointer hover:bg-blue-100" onClick={() => handleTableTeamClick(rink, i, 'h')}>
+                                                        <div className="flex-1 w-0 min-w-0 flex justify-center items-center text-center p-1 break-words cursor-pointer hover:bg-blue-100" onClick={() => handleTableTeamClick(rink, i, 'h')} style={getCsapatStilus(valosH, csapatSzinek[manualOverrides[`${rink}-${i}-h`] ?? meccs.h])}>
                                                             {isInvalidTeam(valosH) ? '' : valosH}
                                                         </div>
                                                         <div className="w-[8mm] flex justify-center items-center border-l-[1px] border-r-[1px] border-gray-400 font-bold text-gray-500">
                                                             —
                                                         </div>
-                                                        <div className="flex-1 flex justify-center items-center text-center p-1 text-[15px] cursor-pointer hover:bg-blue-100" onClick={() => handleTableTeamClick(rink, i, 'v')}>
+                                                        <div className="flex-1 w-0 min-w-0 flex justify-center items-center text-center p-1 break-words cursor-pointer hover:bg-blue-100" onClick={() => handleTableTeamClick(rink, i, 'v')} style={getCsapatStilus(valosV, csapatSzinek[manualOverrides[`${rink}-${i}-v`] ?? meccs.v])}>
                                                             {isInvalidTeam(valosV) ? '' : valosV}
                                                         </div>
                                                     </div>
