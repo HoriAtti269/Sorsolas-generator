@@ -107,7 +107,7 @@
                 datum: '', kezdes: '',
                 rendezo: '', helyszin: '',
                 info: '', infoSzin: '#dc2626', palyaTipus: '2_palya',
-                egyediMeccsPerc: '30', // 2x12 perc + 1 perc térfélcsere + 5 perc kézfogás/levonulás (a bemelegítés külön jön)
+                egyediMeccsPerc: '27', // 2x12 perc + 1 perc térfélcsere + 2 perc levonulás/új csapatok felállása (mint U10-nél)
                 egyediSzunetPerc: '15' // Rolba alapértelmezett
             });
 
@@ -460,9 +460,9 @@
                                    { meccsek: [{h:0,v:3}, {h:1,v:2}, {h:4,v:5}] }, { meccsek: [{h:1,v:3}, {h:0,v:4}, {h:2,v:5}] }, { kor: 'ZARAS' }]
             };
 
-            const meccsPerc = tornaAdatok.egyediMeccsPerc ? parseInt(tornaAdatok.egyediMeccsPerc, 10) : 30;
+            const meccsPerc = tornaAdatok.egyediMeccsPerc ? parseInt(tornaAdatok.egyediMeccsPerc, 10) : 27;
             const rolbaPerc = tornaAdatok.egyediSzunetPerc ? parseInt(tornaAdatok.egyediSzunetPerc, 10) : 15;
-            const bemelegitesPerc = 5; // minden meccs előtt
+            const bemelegitesPerc = 5; // csak a torna legelején
 
             const msz = useMemo(() => sablonAdatbazis[tornaAdatok.szint] || sablonAdatbazis['4cs_4m_2p_side'], [tornaAdatok.szint]);
             const palyakSzama = useMemo(() => {
@@ -477,11 +477,12 @@
                 let korokSzama = 0; let rolbakSzama = 0;
                 for(let i=0; i<korIndex; i++) { if(msz[i].kor === 'ROLBA') rolbakSzama++; else if (msz[i].kor !== 'ZARAS') korokSzama++; }
                 let [ora, perc] = (tornaAdatok.kezdes || '00:00').split(':').map(Number);
-                // Minden meccs előtt bemelegítés: egy meccs-hely = bemelegítés + meccs (+kézfogás). A meccssor a MECCS kezdését mutatja,
-                // a rolba- és záró sor a lefutott meccsek végét (oda nem jön bemelegítés).
-                let ossz = ora * 60 + perc + (korokSzama * (meccsPerc + bemelegitesPerc)) + (rolbakSzama * rolbaPerc);
-                const meccsSor = msz[korIndex] && !msz[korIndex].kor;
-                if (meccsSor && !isBemelegites) ossz += bemelegitesPerc;
+                // Bemelegítés csak a torna elején (5 perc), utána meccsPerc percenként jönnek a meccsek, rolba külön
+                let ossz = ora * 60 + perc + (korokSzama * meccsPerc) + (rolbakSzama * rolbaPerc) + bemelegitesPerc;
+
+                if (isBemelegites && korIndex === 0) {
+                    ossz -= bemelegitesPerc;
+                }
 
                 return `${Math.floor(ossz / 60)}:${(ossz % 60).toString().padStart(2, '0')}`;
             };
@@ -791,7 +792,9 @@
                             </div>
 
                             {/* Táblázat konténer */}
-                            <div className={`${alloLap ? 'w-[186mm]' : 'w-[280mm]'} border-[2px] border-[#0a0a5c] flex flex-col shadow-sm`}>
+                            <div className={`${alloLap ? 'w-[186mm]' : 'w-[280mm]'} border-[2px] border-[#0a0a5c] flex flex-col shadow-sm relative`}>
+                                {/* Keret ráhúzva a sorokra: nyomtatásban a piros/szürke sor nem "eszi meg" a jobb oldali keretet */}
+                                <div className="absolute -inset-[2px] border-[2px] border-[#0a0a5c] pointer-events-none z-10"></div>
 
                                 {/* Fő fejléc */}
                                 <div className="bg-[#0a0a5c] text-white font-bold text-center py-2 text-[18px]">
@@ -814,7 +817,7 @@
                                         {getIdopont(0, true)}
                                     </div>
                                     <div className="flex-1 bg-[#cc0000] text-white font-bold uppercase flex justify-center items-center tracking-wider text-[16px]">
-                                        Bemelegítés {bemelegitesPerc} PERC (minden mérkőzés előtt)
+                                        Bemelegítés {bemelegitesPerc} PERC
                                     </div>
                                 </div>
 
@@ -837,7 +840,7 @@
 
                                     if (row.kor === 'ZARAS') {
                                         return (
-                                            <div key={i} className="flex items-stretch border-t-[1px] border-[#0a0a5c]">
+                                            <div key={i} className="flex items-stretch border-t-[1px] border-gray-400">
                                                 <div className="w-[18mm] bg-[#0a0a5c] text-white font-bold flex justify-center items-center py-1.5 border-r-[1px] border-[#0a0a5c]">
                                                     {ido}
                                                 </div>
