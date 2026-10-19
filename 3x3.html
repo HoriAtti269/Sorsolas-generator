@@ -438,21 +438,33 @@
             // az első meccs csapatai lehetőleg nem játszanak az utolsóban.
             // 6 csapatnál soha nem találkozik: 1-6, 2-5, 3-4 -> ide tedd a testvércsapatokat!
             // 1 pálya = kispálya (álló lap), 2-3 pálya = nagypálya (fekvő lap)
+            // Kispálya: rolba 3-4 meccsenként (jégfelújítás), a csapatok lépcsőzetesen érkeznek/távoznak, a rendező (1.) van bent a legtovább
             const sablonAdatbazis = {
-                '4cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:3}] }, { meccsek: [{h:0,v:3}] }, { meccsek: [{h:1,v:2}] }, { kor: 'ROLBA' },
-                              { meccsek: [{h:0,v:2}] }, { meccsek: [{h:1,v:3}] }, { kor: 'ROLBA' },
-                              { meccsek: [{h:1,v:0}] }, { meccsek: [{h:3,v:2}] }, { kor: 'ZARAS' }],
+                // Régi 4cs_4m_1p - tartalék:
+                // '4cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:3}] }, { meccsek: [{h:0,v:3}] }, { meccsek: [{h:1,v:2}] }, { kor: 'ROLBA' },
+                // { meccsek: [{h:0,v:2}] }, { meccsek: [{h:1,v:3}] }, { kor: 'ROLBA' },
+                // { meccsek: [{h:1,v:0}] }, { meccsek: [{h:3,v:2}] }, { kor: 'ZARAS' }],
+                '4cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:0,v:2}] }, { meccsek: [{h:1,v:2}] }, { meccsek: [{h:0,v:3}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:1,v:3}] }, { meccsek: [{h:1,v:2}] }, { meccsek: [{h:0,v:3}] }, { meccsek: [{h:2,v:3}] }, { kor: 'ZARAS' }],
                 '4cs_4m_2p_side': [{ meccsek: [{h:0,v:1}, {h:2,v:3}] }, { meccsek: [{h:0,v:2}, {h:1,v:3}] }, { kor: 'ROLBA' },
                                    { meccsek: [{h:0,v:3}, {h:1,v:2}] }, { meccsek: [{h:1,v:0}, {h:3,v:2}] }, { kor: 'ZARAS' }],
-                '5cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:3}] }, { meccsek: [{h:0,v:4}] }, { kor: 'ROLBA' },
-                              { meccsek: [{h:1,v:3}] }, { meccsek: [{h:2,v:4}] }, { meccsek: [{h:0,v:3}] }, { meccsek: [{h:1,v:2}] }, { kor: 'ROLBA' },
-                              { meccsek: [{h:1,v:4}] }, { meccsek: [{h:0,v:2}] }, { meccsek: [{h:3,v:4}] }, { kor: 'ZARAS' }],
+                // Régi 5cs_4m_1p - tartalék:
+                // '5cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:3}] }, { meccsek: [{h:0,v:4}] }, { kor: 'ROLBA' },
+                // { meccsek: [{h:1,v:3}] }, { meccsek: [{h:2,v:4}] }, { meccsek: [{h:0,v:3}] }, { meccsek: [{h:1,v:2}] }, { kor: 'ROLBA' },
+                // { meccsek: [{h:1,v:4}] }, { meccsek: [{h:0,v:2}] }, { meccsek: [{h:3,v:4}] }, { kor: 'ZARAS' }],
+                '5cs_4m_1p': [{ meccsek: [{h:1,v:2}] }, { meccsek: [{h:0,v:1}] }, { meccsek: [{h:0,v:2}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:1,v:3}] }, { meccsek: [{h:1,v:4}] }, { meccsek: [{h:2,v:3}] }, { meccsek: [{h:2,v:4}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:0,v:3}] }, { meccsek: [{h:0,v:4}] }, { meccsek: [{h:3,v:4}] }, { kor: 'ZARAS' }],
                 '5cs_4m_2p_side': [{ meccsek: [{h:0,v:1}, {h:2,v:3}] }, { meccsek: [{h:0,v:2}, {h:1,v:4}] }, { kor: 'ROLBA' },
                                    { meccsek: [{h:0,v:3}, {h:2,v:4}] }, { meccsek: [{h:1,v:2}, {h:3,v:4}] }, { kor: 'ROLBA' },
                                    { meccsek: [{h:0,v:4}, {h:1,v:3}] }, { kor: 'ZARAS' }],
-                '6cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:4}] }, { meccsek: [{h:1,v:5}] }, { meccsek: [{h:3,v:4}] }, { kor: 'ROLBA' },
-                              { meccsek: [{h:3,v:5}] }, { meccsek: [{h:1,v:2}] }, { meccsek: [{h:0,v:4}] }, { meccsek: [{h:1,v:3}] }, { kor: 'ROLBA' },
-                              { meccsek: [{h:0,v:2}] }, { meccsek: [{h:4,v:5}] }, { meccsek: [{h:0,v:3}] }, { meccsek: [{h:2,v:5}] }, { kor: 'ZARAS' }],
+                // Régi 6cs_4m_1p - tartalék:
+                // '6cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:4}] }, { meccsek: [{h:1,v:5}] }, { meccsek: [{h:3,v:4}] }, { kor: 'ROLBA' },
+                // { meccsek: [{h:3,v:5}] }, { meccsek: [{h:1,v:2}] }, { meccsek: [{h:0,v:4}] }, { meccsek: [{h:1,v:3}] }, { kor: 'ROLBA' },
+                // { meccsek: [{h:0,v:2}] }, { meccsek: [{h:4,v:5}] }, { meccsek: [{h:0,v:3}] }, { meccsek: [{h:2,v:5}] }, { kor: 'ZARAS' }],
+                '6cs_4m_1p': [{ meccsek: [{h:1,v:2}] }, { meccsek: [{h:0,v:1}] }, { meccsek: [{h:0,v:2}] }, { meccsek: [{h:1,v:3}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:0,v:3}] }, { meccsek: [{h:1,v:5}] }, { meccsek: [{h:2,v:5}] }, { meccsek: [{h:2,v:4}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:0,v:4}] }, { meccsek: [{h:3,v:4}] }, { meccsek: [{h:3,v:5}] }, { meccsek: [{h:4,v:5}] }, { kor: 'ZARAS' }],
                 '6cs_4m_2p_side': [{ meccsek: [{h:0,v:1}, {h:2,v:4}] }, { meccsek: [{h:0,v:2}, {h:3,v:5}] }, { meccsek: [{h:1,v:3}, {h:4,v:5}] }, { kor: 'ROLBA' },
                                    { meccsek: [{h:0,v:4}, {h:1,v:2}] }, { meccsek: [{h:1,v:5}, {h:3,v:4}] }, { meccsek: [{h:0,v:3}, {h:2,v:5}] }, { kor: 'ZARAS' }],
                 // 3 pálya: egymás utáni meccsnél a csapat ugyanazon vagy a szomszéd pályán marad (A-ról nem megy C-re)
