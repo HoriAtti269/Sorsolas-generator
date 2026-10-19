@@ -786,9 +786,15 @@
                         <div id="nyomtatasi-terulet" className={`bg-white ${alloLap ? 'w-[210mm] h-[297mm] allo-lap' : 'w-[297mm] h-[210mm]'} relative shrink-0 overflow-hidden text-black font-sans flex flex-col items-center`}>
 
                             {/* Felső 3x3 Logó */}
+                            {/* Régi logó-sor - tartalék:
                             <div className="w-full h-[60mm] flex justify-center items-center mt-2 mb-2">
-                                {/* Helyezd el a mappában a '3x3_logo.png' fájlt! */}
                                 <img src="Csapat_logok/U12_3x3_LOGO.png" alt="3x3 Logo" className="h-full object-contain" onError={(e) => { e.target.style.display = 'none'; }} />
+                            </div> */}
+                            {/* 3x3 logó: magassága ugyanakkora (40 mm), mint az MJSZ logóé a jégkorong sorsoláson.
+                                Először a Csapat_logok mappában keresi, ha ott nincs, a főkönyvtárban; ha sehol, eltűnik. */}
+                            <div className="w-full h-[40mm] flex justify-center items-center mt-[8mm] mb-[4mm] shrink-0">
+                                <img src="Csapat_logok/3x3.png" alt="3x3 Logo" className="max-h-full max-w-full object-contain"
+                                    onError={(e) => { if (!e.target.dataset.masodik) { e.target.dataset.masodik = '1'; e.target.src = '3x3.png'; } else { e.target.style.display = 'none'; } }} />
                             </div>
 
                             {/* Táblázat konténer */}
