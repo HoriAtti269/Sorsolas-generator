@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3x3 iPhone</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 📱 IPHONE: PDF-készítés nyomtatás nélkül (poszter -> kép -> A4 PDF) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        /* Nyomtatási beállítások - Ez garantálja a tökéletes A4 fekvő nézetet */
+        @media print {
+            @page { size: A4 landscape; margin: 0; }
+            body { margin: 0; background-color: white; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            .print-hide { display: none !important; }
+            /* Görgetett előnézet: ne kerüljön görgetősáv és elcsúszott tartalom a PDF-be */
+            .custom-scrollbar { overflow: visible !important; }
+            /* Testvérharc: a sárga jelzés csak a képernyőn látszik, a PDF-ben a sor saját színe marad */
+            .testver-jelzes { background-color: var(--zebra, transparent) !important; }
+            /* Sorsolás-ellenőrzés: a piros keret szintén csak a képernyőn */
+            .hiba-jelzes { outline: none !important; }
+            #nyomtatasi-terulet {
+                width: 297mm !important; height: 210mm !important; margin: 0 !important; padding: 10mm !important;
+                box-shadow: none !important; border: none !important; border-radius: 0 !important; transform: scale(1) !important;
+                overflow: hidden !important; page-break-after: avoid !important; page-break-inside: avoid !important;
+                background-color: white !important; position: relative;
+            }
+            /* 1 pályás sablon: álló A4 (a @page-et a program teszi hozzá, ha kell) */
+            #nyomtatasi-terulet.allo-lap { width: 210mm !important; height: 297mm !important; }
+        }
+        /* Görgetősáv dizájn a bal oldali menühöz */
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+        /* Sorsolás-ellenőrzés: a hibás sor piros kerete (nyomtatásban eltűnik) */
+        .hiba-jelzes { outline: 2px solid #dc2626; outline-offset: -2px; }
+        /* 📱 IPHONE: a PDF-készítő szövegmérése miatt (különben a szövegek lejjebb csúsznak a PDF-ben) */
+        body img { display: inline; vertical-align: baseline; }
+    </style>
+</head>
+<body class="bg-slate-200">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect, useRef } = React;
+
+        const SorsolasApp = () => {
+
+            // --- 1. BLOKK: ADATBÁZISOK ÉS LOGÓK ---
+            const rejtettTestverek = [
+                ["UTE", "MEGYERI"],
+                ["NYÍR", "SZAB"],
+                ["NYE", "SZP"]
+            ];
+
+            const csarnokAdatbazis = [
+                { kulcsszavak: ["ANGELS", "BALATONBOGLÁR", "JÉGKERT", "BUDAKALÁSZ", "CSABAI", "PAJTA", "DUNAKESZI", "MAKÓ", "DUOCOR", "ESZTERGOM", "KISPÁLYA", "HALÁSZTELEK", "KAZINCBARCIKA", "KECSKEMÉT", "KŐBÁNYA", "LŐRINCI", "MOSONMAGYARÓVÁR", "PÉCS", "SOPRON", "SZOLNOK", "TATA", "VÁROSGAZDA"], kapacitas: 1 },
+                { kulcsszavak: ["EGER", "SZARVAS", "TÁT", "VÁRPALOTA"], kapacitas: 2 }
+            ];
+
+            const csarnokNevekLista = [
+                "Ajka Jégcsarnok", "Budai Jégpálya (Jégkert)", "Dunaújvárosi Jégcsarnok", "Érdi Jégcsarnok",
+                "Ifj. Ocskay Gábor Jégcsarnok, B pálya", "Ifj. Ocskay Gábor Jégcsarnok, C pálya",
+                "Miskolci Jégcsarnok", "Tüskesátor", "Vasas Jégcentrum, Centerpálya", "Vasas Jégcentrum, Edzőpálya"
+            ];
+
+            const csapatNevekLista = [
+                "Ajkai Óriások", "B-Villámok SE", "Dunaújvárosi Acélbikák", "Gödöllői Muskétások",
+                "HC Kiskőrös", "Jégkert SE", "KESI", "MAC Budapest A", "Pécsi Sakálok",
+                "Szombathelyi Pingvinek", "UTE", "Vasas SC", "White Sharks HC"
+            ];
+
+            const areSameClub = (teamA, teamB) => {
+                if (!teamA || !teamB) return false;
+                let a = teamA.trim().toUpperCase();
+                let b = teamB.trim().toUpperCase();
+                if (a === 'SZABAD' || b === 'SZABAD' || a === '' || b === '') return false;
+
+                const clean = (s) => s.replace(/(\s*\d+|\s+[A-Z]\d*|\s+II|\s+III|\s+IV)$/i, '').trim();
+                let cleanA = clean(a);
+                let cleanB = clean(b);
+
+                if (cleanA === cleanB && cleanA.length > 2) return true;
+
+                for (let pair of rejtettTestverek) {
+                    const upperPair = pair.map(p => p.toUpperCase());
+                    if ((upperPair.includes(cleanA) && upperPair.includes(cleanB)) ||
+                        (upperPair.includes(a) && upperPair.includes(b))) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            const formatDatum = (dateStr) => {
+                if (!dateStr) return '';
+                const dateObj = new Date(dateStr);
+                if (isNaN(dateObj)) return dateStr;
+                return `${dateObj.getFullYear()}.${String(dateObj.getMonth() + 1).padStart(2, '0')}.${String(dateObj.getDate()).padStart(2, '0')}.`;
+            };
+
+            // --- 2. BLOKK: ÁLLAPOTOK ÉS LOGIKA ---
+            const [tornaAdatok, setTornaAdatok] = useState({
+                korosztaly: 'U12 3x3', csoport: '',
+                szint: '4cs_4m_2p_side', sorszam: '',
+                datum: '', kezdes: '',
+                rendezo: '', helyszin: '',
+                info: '', infoSzin: '#dc2626', palyaTipus: '2_palya',
+                egyediMeccsPerc: '27', // 2x12 perc + 1 perc térfélcsere + 2 perc levonulás/új csapatok felállása (mint U10-nél)
+                egyediSzunetPerc: '15' // Rolba alapértelmezett
+            });
+
+            const [csapatok, setCsapatok] = useState(['', '', '', '', '', '', '', '']);
+            const [csapatSzinek, setCsapatSzinek] = useState(Array(8).fill('#000000')); // fekete, mint a 3x3 poszter alapszövege
+            const [pastedData, setPastedData] = useState('');
+            const [utkozesEngedelyezve, setUtkozesEngedelyezve] = useState(false);
+            const fileInputRef = useRef(null);
+
+            const [kivalasztottCsapat, setKivalasztottCsapat] = useState(null);
+            const [manualOverrides, setManualOverrides] = useState({});
+
+            // --- VISSZA GOMB: minden csere előtt pillanatkép (legfeljebb 30 lépés) ---
+            const [elozmenyek, setElozmenyek] = useState([]);
+            const pillanatkep = () => setElozmenyek(prev => [...prev.slice(-29), { csapatok: [...csapatok], csapatSzinek: [...csapatSzinek], manualOverrides: { ...manualOverrides } }]);
+            const handleVissza = () => {
+                if (elozmenyek.length === 0) return;
+                const utolso = elozmenyek[elozmenyek.length - 1];
+                setCsapatok(utolso.csapatok);
+                setCsapatSzinek(utolso.csapatSzinek);
+                setManualOverrides(utolso.manualOverrides);
+                setElozmenyek(prev => prev.slice(0, -1));
+                setKivalasztottCsapat(null);
+            };
+            const [isJSONLoading, setIsJSONLoading] = useState(false);
+
+            const cleanFileName = (text) => {
+                const ekezetek = {'á':'a','é':'e','í':'i','ó':'o','ö':'o','ő':'o','ú':'u','ü':'u','ű':'u','Á':'A','É':'E','Í':'I','Ó':'O','Ö':'O','Ő':'O','Ú':'U','Ü':'U','Ű':'U'};
+                let clean = text.split('').map(char => ekezetek[char] || char).join('');
+                return clean.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+            };
+
+            // --- MENTÉSI MAPPÁK (File System Access API) ---
+            // A kiválasztott mappa "fogantyúját" (handle) nem lehet JSON-ba tenni,
+            // ezért IndexedDB-be kerül. Mind a három app (jégkorong, inline, 3x3)
+            // ugyanazon az origin-en fut, ezért a beállítás KÖZÖS: amit itt beállítasz,
+            // azt a másik kettő is használja. Ha külön mappát akarsz nekik, a
+            // MAPPA_TAR nevébe írj app-nevet (pl. 'mappak_inline').
+            // Telefonon (iOS/Android) ez az API nincs meg -- ott a sima letöltés marad.
+            const MAPPA_DB = 'sorsolas-mappak';
+            const MAPPA_TAR = 'mappak';
+            const mappaTamogatott = typeof window !== 'undefined' && !!window.showDirectoryPicker;
+
+            const mappaDbNyit = () => new Promise((ok, hiba) => {
+                const k = indexedDB.open(MAPPA_DB, 1);
+                k.onupgradeneeded = () => k.result.createObjectStore(MAPPA_TAR);
+                k.onsuccess = () => ok(k.result);
+                k.onerror = () => hiba(k.error);
+            });
+
+            const mappaOlvas = async (kulcs) => {
+                try {
+                    const db = await mappaDbNyit();
+                    return await new Promise(ok => {
+                        const k = db.transaction(MAPPA_TAR, 'readonly').objectStore(MAPPA_TAR).get(kulcs);
+                        k.onsuccess = () => ok(k.result || null);
+                        k.onerror = () => ok(null);
+                    });
+                } catch (e) { return null; }
+            };
+
+            const mappaIr = async (kulcs, ertek) => {
+                try {
+                    const db = await mappaDbNyit();
+                    return await new Promise(ok => {
+                        const t = db.transaction(MAPPA_TAR, 'readwrite');
+                        t.objectStore(MAPPA_TAR).put(ertek, kulcs);
+                        t.oncomplete = () => ok(true);
+                        t.onerror = () => ok(false);
+                    });
+                } catch (e) { return false; }
+            };
+
+            // gep / drive: a két eltárolt mappa; aktivMappa: melyiket használja a MENTÉS
+            const [mappak, setMappak] = useState({ gep: null, drive: null });
+            const [aktivMappa, setAktivMappa] = useState('gep');
+            const [mentesJelzes, setMentesJelzes] = useState('');
+
+            // Induláskor visszaolvassuk a korábban beállított mappákat
+            useEffect(() => {
+                if (!mappaTamogatott) return;
+                (async () => {
+                    const g = await mappaOlvas('gep');
+                    const d = await mappaOlvas('drive');
+                    const a = await mappaOlvas('aktiv');
+                    setMappak({ gep: g || null, drive: d || null });
+                    // Ha a korábban aktív mappa közben eltűnt, a másikra váltunk
+                    setAktivMappa((a === 'drive' && d) ? 'drive' : (g ? 'gep' : (d ? 'drive' : 'gep')));
+                })();
+            }, []);
+
+            const mappaValaszt = async (melyik) => {
+                try {
+                    const handle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'sorsolas-' + melyik });
+                    await mappaIr(melyik, handle);
+                    await mappaIr('aktiv', melyik);
+                    setMappak(prev => ({ ...prev, [melyik]: handle }));
+                    setAktivMappa(melyik);
+                } catch (e) { /* a felhasználó bezárta a mappaválasztót - nincs teendő */ }
+            };
+
+            const mappaAktival = async (melyik) => {
+                if (!mappak[melyik]) return;
+                await mappaIr('aktiv', melyik);
+                setAktivMappa(melyik);
+            };
+
+            const mappaTorol = async (melyik) => {
+                await mappaIr(melyik, null);
+                setMappak(prev => ({ ...prev, [melyik]: null }));
+            };
+
+            // A JSON kiírása: ha van beállított mappa, egyenesen oda; különben letöltés.
+            // A letöltés a TARTALÉK -- telefonon mindig ez fut.
+            const jsonKiir = async (jsonStr, fajlNev) => {
+                const mappa = mappaTamogatott ? mappak[aktivMappa] : null;
+                if (mappa) {
+                    try {
+                        let jog = await mappa.queryPermission({ mode: 'readwrite' });
+                        if (jog !== 'granted') jog = await mappa.requestPermission({ mode: 'readwrite' });
+                        if (jog === 'granted') {
+                            const fh = await mappa.getFileHandle(fajlNev, { create: true });
+                            const iro = await fh.createWritable();
+                            await iro.write(jsonStr);
+                            await iro.close();
+                            setMentesJelzes(`✓ ${mappa.name} / ${fajlNev}`);
+                            setTimeout(() => setMentesJelzes(''), 5000);
+                            return;
+                        }
+                    } catch (e) {
+                        // Törölt mappa, megtagadott jog, bármi: megyünk a letöltésre
+                    }
+                }
+                // 📱 IPHONE: megosztás menü (Mentés a Fájlokba / Drive) -- ha nincs ilyen, marad a letöltés
+                if (navigator.canShare) {
+                    const megosztFajl = new File([jsonStr], fajlNev, { type: "application/json" });
+                    if (navigator.canShare({ files: [megosztFajl] })) {
+                        try {
+                            await navigator.share({ files: [megosztFajl] });
+                            setMentesJelzes(`✓ ${fajlNev}`);
+                            setTimeout(() => setMentesJelzes(''), 5000);
+                            return;
+                        } catch (e) {
+                            if (e.name === 'AbortError') return;   // Mégse: nincs teendő; más hiba: lent a letöltés
+                        }
+                    }
+                }
+                const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url; a.download = fajlNev;
+                document.body.appendChild(a);   // iOS Safari: a be nem illesztett elem kattintása néha nem indít letöltést
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 10000);   // az azonnali felszabadítás megölheti a letöltést
+                setMentesJelzes(`⤓ ${fajlNev}`);
+                setTimeout(() => setMentesJelzes(''), 5000);
+            };
+
+            // --- TERVEZET-BEOLVASÁS: SEGÉDFÜGGVÉNYEK ---
+            // Az éves tornatervből 1 oszlopot másolsz be: város, dátum (pl. "08.nov"), rendező, többi csapat.
+            // Időpont még nincs, ezért a kezdés 0:00 -> a csapatok így is látják, milyen hosszú a torna.
+            const HONAPOK = { jan: 1, feb: 2, mar: 3, apr: 4, maj: 5, jun: 6, jul: 7, aug: 8, sze: 9, okt: 10, nov: 11, dec: 12 };
+            const ekezetNelkul = (s) => s.toLowerCase().replace(/á/g, 'a').replace(/é/g, 'e').replace(/í/g, 'i').replace(/[óöő]/g, 'o').replace(/[úüű]/g, 'u');
+
+            // "08.nov", "8.nov.", "nov.08", "nov. 8.", "november 8" -> "2026-11-08"; ha nem dátum: null
+            // Év: szezon szerint (aug-dec = szezon kezdőéve, jan-júl = a következő év)
+            const tervezetDatum = (sor) => {
+                const s = ekezetNelkul(sor.trim());
+                let nap, hoNev;
+                let m = s.match(/^(\d{1,2})\.?\s*([a-z]{3,})\.?$/);
+                if (m) { nap = parseInt(m[1], 10); hoNev = m[2]; }
+                else {
+                    m = s.match(/^([a-z]{3,})\.?\s*(\d{1,2})\.?$/);
+                    if (!m) return null;
+                    hoNev = m[1]; nap = parseInt(m[2], 10);
+                }
+                const ho = HONAPOK[hoNev.slice(0, 3)];
+                if (!ho || nap < 1 || nap > 31) return null;
+                const ma = new Date();
+                const szezonKezdoEv = (ma.getMonth() + 1) >= 8 ? ma.getFullYear() : ma.getFullYear() - 1;
+                const ev = ho >= 8 ? szezonKezdoEv : szezonKezdoEv + 1;
+                return `${ev}-${String(ho).padStart(2, '0')}-${String(nap).padStart(2, '0')}`;
+            };
+
+            // Tervezet-formátum? Ha nem az (pl. van "1. Csapat" sor, teljes dátum vagy időpont), null -> marad a régi beolvasás
+            const tervezetFelismeres = (sorok) => {
+                const cellak = sorok.map(l => l.split('\t')[0].trim()).filter(c => c !== '');
+                if (cellak.some(c => /^\d{1,2}[\.\)]\s*\S/.test(c) && !tervezetDatum(c))) return null;
+                if (cellak.some(c => /\d{4}\.\d{2}\.\d{2}/.test(c) || /^\d{1,2}:\d{2}$/.test(c))) return null;
+                const dIdx = cellak.findIndex(c => tervezetDatum(c));
+                if (dIdx === -1) return null;
+                const csapatLista = cellak.slice(dIdx + 1, dIdx + 9);
+                if (csapatLista.length === 0) return null;
+                return { varos: dIdx > 0 ? cellak[dIdx - 1] : '', datum: tervezetDatum(cellak[dIdx]), csapatLista };
+            };
+
+            // Varázsdoboz beolvasó rutin (egyszerűsítve)
+            const handleExcelPaste = (e) => {
+                const text = e.target.value;
+                if (!text) return;
+                let ujAdatok = { ...tornaAdatok, info: '', rendezo: '' }; // rendezo: ne maradjon itt egy korábbi tervezet rendezője
+                let ujCsapatok = ['', '', '', '', '', '', '', ''];
+                let talaltCsapatokSzama = 0;
+
+                setUtkozesEngedelyezve(false);
+                setKivalasztottCsapat(null);
+                setManualOverrides({});
+                setElozmenyek([]); // új torna: a régi cseréket nem lehet visszahozni
+
+                const rawLines = text.split('\n').map(l => l.trim()).filter(l => l !== '');
+                if (rawLines.length === 0) return;
+
+                // --- TERVEZET-ÁG: éves tornaterv (1 oszlop, nincs időpont). Ha nem ilyen, megy tovább a régi beolvasás. ---
+                const tervezet = tervezetFelismeres(rawLines);
+                if (tervezet) {
+                    tervezet.csapatLista.forEach((nev, idx) => { ujCsapatok[idx] = nev; });
+                    const csapatDb = tervezet.csapatLista.length;
+
+                    // Helyszín: ha a város pontosan egy csarnoknévvel kezdődik (Ajka -> Ajka Jégcsarnok), azt írjuk be
+                    const varosNagy = tervezet.varos.toUpperCase();
+                    const talalat = varosNagy ? csarnokNevekLista.filter(n => n.toUpperCase().startsWith(varosNagy)) : [];
+                    const helyszin = talalat.length === 1 ? talalat[0] : tervezet.varos;
+
+                    // Kispálya vagy nagypálya: csarnokAdatbazis, a szavak ELEJÉN keresve (mint a jégkorongban)
+                    const helyszinSzavak = (tervezet.varos + ' ' + helyszin).toUpperCase().split(/[^A-ZÁÉÍÓÖŐÚÜŰ]+/).filter(sz => sz !== '');
+                    let kapacitas = 0;
+                    for (let entry of csarnokAdatbazis) {
+                        if (entry.kulcsszavak.some(k => helyszinSzavak.some(sz => sz.startsWith(k.toUpperCase())))) { kapacitas = entry.kapacitas; break; }
+                    }
+                    const ujSzint = `${csapatDb}cs_4m_${kapacitas === 1 ? '1p' : '2p_side'}`;
+
+                    setTornaAdatok({
+                        ...ujAdatok,
+                        korosztaly: 'U12 3x3', sorszam: '',
+                        datum: tervezet.datum, kezdes: '00:00',
+                        rendezo: tervezet.csapatLista[0], helyszin,
+                        szint: sablonAdatbazis[ujSzint] ? ujSzint : tornaAdatok.szint
+                    });
+                    setCsapatok(ujCsapatok);
+                    setCsapatSzinek(Array(8).fill('#000000'));
+                    if (!sablonAdatbazis[ujSzint]) alert(`${csapatDb} csapatra nincs 3x3 sablon (4, 5 vagy 6 csapat lehet). A sablont válaszd ki kézzel!`);
+                    setTimeout(() => setPastedData(''), 100);
+                    return;
+                }
+
+                // Egyszerű adatkivétel
+                for (let i = 0; i < rawLines.length; i++) {
+                    const line = rawLines[i];
+                    if (line.match(/\b(U12)\b/i)) ujAdatok.korosztaly = 'U12 3x3';
+                    if (line.match(/(\d{4})\.(\d{2})\.(\d{2})/)) ujAdatok.datum = line.match(/(\d{4})\.(\d{2})\.(\d{2})/)[0].replace(/\./g, '-');
+                    if (line.match(/^(\d{1,2}):(\d{2})$/)) ujAdatok.kezdes = line.match(/^(\d{1,2}):(\d{2})$/)[0];
+
+                    const teamMatch = line.match(/^\d{1,2}[\.\)]\s*(.+)$/);
+                    if (teamMatch && talaltCsapatokSzama < 8) {
+                        const tName = teamMatch[1].split('\t')[0].trim();
+                        ujCsapatok[talaltCsapatokSzama] = tName;
+                        talaltCsapatokSzama++;
+                    }
+                }
+                setTornaAdatok(ujAdatok);
+                setCsapatok(ujCsapatok);
+                setTimeout(() => setPastedData(''), 100);
+            };
+
+            // Fájlnév sorszám nélkül (tervezet): "U12 3x3_Rendező" ékezettel - a JSON és a PDF is ezt kapja
+            const tervezetFajlNev = () => `${tornaAdatok.korosztaly}_${tornaAdatok.rendezo || csapatok[0] || ''}`.replace(/[^a-z0-9áéíóöőúüű _\-]/gi, '').replace(/\s+/g, ' ').trim();
+
+            const handleSaveJSON = () => {
+                const dataToSave = { tornaAdatok, csapatok, csapatSzinek, manualOverrides };
+                const jsonStr = JSON.stringify(dataToSave, null, 2);
+                const safeName = tornaAdatok.sorszam ? cleanFileName(tornaAdatok.sorszam) : (tervezetFajlNev() || '3x3_torna');
+                jsonKiir(jsonStr, `${safeName}.json`);   // beállított mappába, vagy letöltésként
+            };
+
+            const handleLoadJSON = (e) => {
+                const file = e.target.files[0]; if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    try {
+                        const data = JSON.parse(ev.target.result);
+                        setIsJSONLoading(true);
+                        setElozmenyek([]); // betöltött torna: tiszta lap a Vissza gombnak
+                        if (data.csapatok) setCsapatok(data.csapatok);
+                        setCsapatSzinek(data.csapatSzinek || Array(8).fill('#000000'));
+                        if (data.tornaAdatok) setTornaAdatok(data.tornaAdatok);
+                        setTimeout(() => { if (data.manualOverrides) setManualOverrides(data.manualOverrides); setIsJSONLoading(false); }, 150);
+                    } catch (err) { alert("Hiba a fájl beolvasásakor!"); }
+                };
+                reader.readAsText(file); e.target.value = null;
+            };
+
+            // --- OKOS PDF NYOMTATÁS: fájlnév = sorszám + rendező (ha nincs rendező, az 1. csapat), ékezettel ---
+            const handleSmartPrint = () => {
+                const originalTitle = document.title;
+                const safeName = tornaAdatok.sorszam
+                    ? `${tornaAdatok.sorszam} ${tornaAdatok.rendezo || csapatok[0] || ''}`.replace(/[^a-z0-9áéíóöőúüű \-]/gi, '').replace(/\s+/g, ' ').trim()
+                    : tervezetFajlNev();   // nincs sorszám (tervezet): "U12 3x3_Rendező"
+                if (safeName) document.title = safeName;
+                window.print();
+                setTimeout(() => { document.title = originalTitle; }, 1000);
+            };
+
+            // --- 📱 IPHONE: PDF KÉSZÍTÉS NYOMTATÁS NÉLKÜL ---
+            // A posztert lefényképezzük (html2canvas), abból A4 PDF lesz (jsPDF) -- 1 pálya: álló, különben fekvő,
+            // majd a telefon megosztás menüjével mentjük. Két gombnyomás kell: az iPhone a megosztást csak
+            // KÖZVETLEN gombnyomásra engedi, a PDF elkészítése pedig ehhez túl sokáig tart.
+            const [pdfFajl, setPdfFajl] = useState(null);
+            const [pdfKeszul, setPdfKeszul] = useState(false);
+
+            // Ha bármi változik a sorsoláson, a kész PDF elavult -- újra kell készíteni
+            useEffect(() => { setPdfFajl(null); }, [tornaAdatok, csapatok, csapatSzinek, manualOverrides, utkozesEngedelyezve]);
+
+            // Ugyanaz a fájlnév, mint gépen (handleSmartPrint)
+            const pdfNev = () => (tornaAdatok.sorszam
+                ? `${tornaAdatok.sorszam} ${tornaAdatok.rendezo || csapatok[0] || ''}`.replace(/[^a-z0-9áéíóöőúüű \-]/gi, '').replace(/\s+/g, ' ').trim()
+                : tervezetFajlNev()) || 'sorsolas';
+
+            const pdfKeszit = async () => {
+                const elem = document.getElementById('nyomtatasi-terulet');
+                if (!elem || !window.html2canvas || !window.jspdf) { alert("A PDF-készítő nem töltődött be. Van internet?"); return; }
+                setPdfKeszul(true);
+                try {
+                    const vaszon = await window.html2canvas(elem, {
+                        scale: 3, useCORS: true, backgroundColor: '#ffffff', logging: false,
+                        onclone: (doc) => {
+                            // A másolatban: kicsinyítés ki, képernyős jelzések ki (ugyanaz, mint nyomtatásnál)
+                            const keret = doc.getElementById('elonezet-skala');
+                            if (keret) keret.style.transform = 'none';
+                            const stilus = doc.createElement('style');
+                            stilus.textContent = '.testver-jelzes { background-color: var(--zebra, transparent) !important; } .hiba-jelzes { outline: none !important; }';
+                            doc.head.appendChild(stilus);
+                        }
+                    });
+                    const pdf = new window.jspdf.jsPDF({ orientation: alloLap ? 'portrait' : 'landscape', unit: 'mm', format: 'a4' });
+                    pdf.addImage(vaszon.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, alloLap ? 210 : 297, alloLap ? 297 : 210);
+                    pdf.setProperties({ title: pdfNev() });
+                    setPdfFajl(new File([pdf.output('blob')], `${pdfNev()}.pdf`, { type: 'application/pdf' }));
+                } catch (e) {
+                    alert("Nem sikerült a PDF: " + e.message);
+                }
+                setPdfKeszul(false);
+            };
+
+            const pdfMegoszt = async () => {
+                if (!pdfFajl) return;
+                if (navigator.canShare && navigator.canShare({ files: [pdfFajl] })) {
+                    try { await navigator.share({ files: [pdfFajl] }); return; }
+                    catch (e) { if (e.name === 'AbortError') return; }   // Mégse: nincs teendő
+                }
+                // Tartalék: sima letöltés / megnyitás
+                const url = URL.createObjectURL(pdfFajl);
+                const a = document.createElement('a');
+                a.href = url; a.download = pdfFajl.name;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 10000);
+            };
+
+            // Előnézet mérete: a képernyő méretét figyeljük (a kicsinyítést a lapállás ismeretében lent számoljuk)
+            const [ablakMeret, setAblakMeret] = useState({ w: window.innerWidth, h: window.innerHeight });
+            useEffect(() => {
+                const frissit = () => setAblakMeret({ w: window.innerWidth, h: window.innerHeight });
+                window.addEventListener('resize', frissit);
+                return () => window.removeEventListener('resize', frissit);
+            }, []);
+
+            const handleTeamClick = (index) => {
+                if (kivalasztottCsapat === null) setKivalasztottCsapat(index);
+                else {
+                    if (kivalasztottCsapat !== index) {
+                        pillanatkep(); // Vissza gombhoz
+                        const ujCsapatok = [...csapatok];
+                        const temp = ujCsapatok[kivalasztottCsapat];
+                        ujCsapatok[kivalasztottCsapat] = ujCsapatok[index];
+                        ujCsapatok[index] = temp;
+                        setCsapatok(ujCsapatok);
+
+                        // A csapat színe megy a csapattal (mint a jégkorongban)
+                        const ujSzinek = [...csapatSzinek];
+                        const tempSzin = ujSzinek[kivalasztottCsapat];
+                        ujSzinek[kivalasztottCsapat] = ujSzinek[index];
+                        ujSzinek[index] = tempSzin;
+                        setCsapatSzinek(ujSzinek);
+
+                        setManualOverrides({});
+                    }
+                    setKivalasztottCsapat(null);
+                }
+            };
+
+            const handleTableTeamClick = (rink, rowIndex, side) => {
+                if (kivalasztottCsapat !== null) {
+                    pillanatkep(); // Vissza gombhoz
+                    setManualOverrides(prev => ({ ...prev, [`${rink}-${rowIndex}-${side}`]: kivalasztottCsapat }));
+                    setKivalasztottCsapat(null);
+                }
+            };
+
+            // SABLONOK
+            // Régi (2-3 meccses) sablonok - tartalék:
+            // '4cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { kor: 'ROLBA' }, { meccsek: [{h:2,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:2}] }, { kor: 'ROLBA' }, { meccsek: [{h:1,v:3}] }, { kor: 'ZARAS' }],
+            // '4cs_4m_2p_side': [{ meccsek: [{h:0,v:1}, {h:2,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:2}, {h:1,v:3}] }, { kor: 'ROLBA' }, { meccsek: [{h:0,v:3}, {h:1,v:2}] }, { kor: 'ZARAS' }]
+
+            // U12 3x3 SABLONOK: minden csapat 4 meccs, legfeljebb 2 egymás után (a rolba pihenő),
+            // az első meccs csapatai lehetőleg nem játszanak az utolsóban.
+            // 6 csapatnál soha nem találkozik: 1-6, 2-5, 3-4 -> ide tedd a testvércsapatokat!
+            // 1 pálya = kispálya (álló lap), 2-3 pálya = nagypálya (fekvő lap)
+            // Kispálya: rolba 3-4 meccsenként (jégfelújítás), a csapatok lépcsőzetesen érkeznek/távoznak, a rendező (1.) van bent a legtovább
+            const sablonAdatbazis = {
+                // Régi 4cs_4m_1p - tartalék:
+                // '4cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:3}] }, { meccsek: [{h:0,v:3}] }, { meccsek: [{h:1,v:2}] }, { kor: 'ROLBA' },
+                // { meccsek: [{h:0,v:2}] }, { meccsek: [{h:1,v:3}] }, { kor: 'ROLBA' },
+                // { meccsek: [{h:1,v:0}] }, { meccsek: [{h:3,v:2}] }, { kor: 'ZARAS' }],
+                '4cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:0,v:2}] }, { meccsek: [{h:1,v:2}] }, { meccsek: [{h:0,v:3}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:1,v:3}] }, { meccsek: [{h:1,v:2}] }, { meccsek: [{h:0,v:3}] }, { meccsek: [{h:2,v:3}] }, { kor: 'ZARAS' }],
+                '4cs_4m_2p_side': [{ meccsek: [{h:0,v:1}, {h:2,v:3}] }, { meccsek: [{h:0,v:2}, {h:1,v:3}] }, { kor: 'ROLBA' },
+                                   { meccsek: [{h:0,v:3}, {h:1,v:2}] }, { meccsek: [{h:1,v:0}, {h:3,v:2}] }, { kor: 'ZARAS' }],
+                // Régi 5cs_4m_1p - tartalék:
+                // '5cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:3}] }, { meccsek: [{h:0,v:4}] }, { kor: 'ROLBA' },
+                // { meccsek: [{h:1,v:3}] }, { meccsek: [{h:2,v:4}] }, { meccsek: [{h:0,v:3}] }, { meccsek: [{h:1,v:2}] }, { kor: 'ROLBA' },
+                // { meccsek: [{h:1,v:4}] }, { meccsek: [{h:0,v:2}] }, { meccsek: [{h:3,v:4}] }, { kor: 'ZARAS' }],
+                '5cs_4m_1p': [{ meccsek: [{h:1,v:2}] }, { meccsek: [{h:0,v:1}] }, { meccsek: [{h:0,v:2}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:1,v:3}] }, { meccsek: [{h:1,v:4}] }, { meccsek: [{h:2,v:3}] }, { meccsek: [{h:2,v:4}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:0,v:3}] }, { meccsek: [{h:0,v:4}] }, { meccsek: [{h:3,v:4}] }, { kor: 'ZARAS' }],
+                '5cs_4m_2p_side': [{ meccsek: [{h:0,v:1}, {h:2,v:3}] }, { meccsek: [{h:0,v:2}, {h:1,v:4}] }, { kor: 'ROLBA' },
+                                   { meccsek: [{h:0,v:3}, {h:2,v:4}] }, { meccsek: [{h:1,v:2}, {h:3,v:4}] }, { kor: 'ROLBA' },
+                                   { meccsek: [{h:0,v:4}, {h:1,v:3}] }, { kor: 'ZARAS' }],
+                // Régi 6cs_4m_1p - tartalék:
+                // '6cs_4m_1p': [{ meccsek: [{h:0,v:1}] }, { meccsek: [{h:2,v:4}] }, { meccsek: [{h:1,v:5}] }, { meccsek: [{h:3,v:4}] }, { kor: 'ROLBA' },
+                // { meccsek: [{h:3,v:5}] }, { meccsek: [{h:1,v:2}] }, { meccsek: [{h:0,v:4}] }, { meccsek: [{h:1,v:3}] }, { kor: 'ROLBA' },
+                // { meccsek: [{h:0,v:2}] }, { meccsek: [{h:4,v:5}] }, { meccsek: [{h:0,v:3}] }, { meccsek: [{h:2,v:5}] }, { kor: 'ZARAS' }],
+                '6cs_4m_1p': [{ meccsek: [{h:1,v:2}] }, { meccsek: [{h:0,v:1}] }, { meccsek: [{h:0,v:2}] }, { meccsek: [{h:1,v:3}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:0,v:3}] }, { meccsek: [{h:1,v:5}] }, { meccsek: [{h:2,v:5}] }, { meccsek: [{h:2,v:4}] }, { kor: 'ROLBA' },
+                              { meccsek: [{h:0,v:4}] }, { meccsek: [{h:3,v:4}] }, { meccsek: [{h:3,v:5}] }, { meccsek: [{h:4,v:5}] }, { kor: 'ZARAS' }],
+                '6cs_4m_2p_side': [{ meccsek: [{h:0,v:1}, {h:2,v:4}] }, { meccsek: [{h:0,v:2}, {h:3,v:5}] }, { meccsek: [{h:1,v:3}, {h:4,v:5}] }, { kor: 'ROLBA' },
+                                   { meccsek: [{h:0,v:4}, {h:1,v:2}] }, { meccsek: [{h:1,v:5}, {h:3,v:4}] }, { meccsek: [{h:0,v:3}, {h:2,v:5}] }, { kor: 'ZARAS' }],
+                // 3 pálya: egymás utáni meccsnél a csapat ugyanazon vagy a szomszéd pályán marad (A-ról nem megy C-re)
+                '6cs_4m_3p_side': [{ meccsek: [{h:0,v:1}, {h:2,v:4}, {h:3,v:5}] }, { meccsek: [{h:0,v:2}, {h:1,v:5}, {h:3,v:4}] }, { kor: 'ROLBA' },
+                                   { meccsek: [{h:0,v:3}, {h:1,v:2}, {h:4,v:5}] }, { meccsek: [{h:1,v:3}, {h:0,v:4}, {h:2,v:5}] }, { kor: 'ZARAS' }]
+            };
+
+            const meccsPerc = tornaAdatok.egyediMeccsPerc ? parseInt(tornaAdatok.egyediMeccsPerc, 10) : 27;
+            const rolbaPerc = tornaAdatok.egyediSzunetPerc ? parseInt(tornaAdatok.egyediSzunetPerc, 10) : 15;
+            const bemelegitesPerc = 5; // csak a torna legelején
+
+            const msz = useMemo(() => sablonAdatbazis[tornaAdatok.szint] || sablonAdatbazis['4cs_4m_2p_side'], [tornaAdatok.szint]);
+            const palyakSzama = useMemo(() => {
+                if (!msz || !msz[0].meccsek) return 1;
+                let max = 1; msz.forEach(s => { if (s.meccsek && s.meccsek.length > max) max = s.meccsek.length; });
+                return max;
+            }, [msz]);
+
+            const palyaBetuk = ["A", "B", "C", "D"];
+
+            const getIdopont = (korIndex, isBemelegites = false) => {
+                let korokSzama = 0; let rolbakSzama = 0;
+                for(let i=0; i<korIndex; i++) { if(msz[i].kor === 'ROLBA') rolbakSzama++; else if (msz[i].kor !== 'ZARAS') korokSzama++; }
+                let [ora, perc] = (tornaAdatok.kezdes || '00:00').split(':').map(Number);
+                // Bemelegítés csak a torna elején (5 perc), utána meccsPerc percenként jönnek a meccsek, rolba külön
+                let ossz = ora * 60 + perc + (korokSzama * meccsPerc) + (rolbakSzama * rolbaPerc) + bemelegitesPerc;
+
+                if (isBemelegites && korIndex === 0) {
+                    ossz -= bemelegitesPerc;
+                }
+
+                return `${Math.floor(ossz / 60)}:${(ossz % 60).toString().padStart(2, '0')}`;
+            };
+
+            const rinkSchedules = useMemo(() => {
+                const s = {};
+                Array.from({ length: palyakSzama }).forEach((_, i) => { s[palyaBetuk[i]] = []; });
+                if (msz) {
+                    msz.forEach((sor, idx) => {
+                        const ido = getIdopont(idx);
+                        if (sor.kor === 'ROLBA') { Object.keys(s).forEach(k => s[k].push({ tipus: 'rolba', ido })); }
+                        else if (sor.kor === 'ZARAS') { Object.keys(s).forEach(k => s[k].push({ tipus: 'zaras', ido })); }
+                        else {
+                            Array.from({ length: palyakSzama }).forEach((_, pIdx) => {
+                                const rinkLetter = palyaBetuk[pIdx];
+                                const meccs = sor.meccsek[pIdx];
+                                if (meccs) s[rinkLetter].push({ tipus: 'meccs', ido, h: meccs.h, v: meccs.v });
+                                else s[rinkLetter].push({ tipus: 'szabad', ido });
+                            });
+                        }
+                    });
+                }
+                return s;
+            }, [msz, palyakSzama, tornaAdatok.kezdes, meccsPerc, rolbaPerc, tornaAdatok.szint]);
+
+            // --- SORSOLÁS-ELLENŐRZÉS: A SABLON AZ ETALON ---
+            // Nem tárolunk külön szabályokat (pl. "4 csapatnál 1-2 kétszer játszik"):
+            // amit a kiválasztott sablon előír, azt vetjük össze azzal, ami a kézi
+            // felülírások (manualOverrides) után ténylegesen a poszteren van. Így a
+            // 4 csapatos dupla párosítás és az 5 csapatos "rendező 4 meccs" magától
+            // helyes marad, és egy jövőbeli új sablonnál sem kell hozzányúlni.
+            const ellenorzes = useMemo(() => {
+                const uzenetek = [];
+                const hibasSorok = {};   // "A-3" -> true, ez a cella/sor kap piros keretet
+                if (!msz) return { uzenetek, hibasSorok };
+
+                const nev = (idx) => (csapatok[idx] && csapatok[idx].trim()) || `${idx + 1}. csapat`;
+                const parKulcs = (a, b) => [a, b].sort((x, y) => x - y).join('-');
+
+                // 1) Etalon: mit ír elő a sablon (csapatindexek szerint)
+                const sablonParok = {}; const sablonMeccs = {};
+                msz.forEach(sor => {
+                    if (!sor.meccsek) return;
+                    sor.meccsek.forEach(m => {
+                        if (!m) return;
+                        const k = parKulcs(m.h, m.v);
+                        sablonParok[k] = (sablonParok[k] || 0) + 1;
+                        sablonMeccs[m.h] = (sablonMeccs[m.h] || 0) + 1;
+                        sablonMeccs[m.v] = (sablonMeccs[m.v] || 0) + 1;
+                    });
+                });
+
+                // 2) Valóság: a kézi felülírásokkal együtt, körönként
+                const valosParok = {}; const valosMeccs = {};
+                msz.forEach((sor, i) => {
+                    if (!sor.meccsek) return;
+                    const korbenJatszik = {};   // csapatindex -> hányszor ebben a körben
+                    sor.meccsek.forEach((m, pIdx) => {
+                        if (!m) return;
+                        const rink = palyaBetuk[pIdx];
+                        const h = manualOverrides[`${rink}-${i}-h`] ?? m.h;
+                        const v = manualOverrides[`${rink}-${i}-v`] ?? m.v;
+
+                        if (h === v) {
+                            hibasSorok[`${rink}-${i}`] = true;
+                            uzenetek.push(`${nev(h)} önmaga ellen játszik ("${rink}" pálya, ${getIdopont(i)})`);
+                        }
+                        const k = parKulcs(h, v);
+                        valosParok[k] = (valosParok[k] || 0) + 1;
+                        valosMeccs[h] = (valosMeccs[h] || 0) + 1;
+                        valosMeccs[v] = (valosMeccs[v] || 0) + 1;
+                        korbenJatszik[h] = (korbenJatszik[h] || 0) + 1;
+                        korbenJatszik[v] = (korbenJatszik[v] || 0) + 1;
+                    });
+
+                    // Egy csapat egyszerre két pályán — ez a legsúlyosabb hiba
+                    Object.keys(korbenJatszik).forEach(idx => {
+                        if (korbenJatszik[idx] < 2) return;
+                        sor.meccsek.forEach((m, pIdx) => {
+                            if (!m) return;
+                            const rink = palyaBetuk[pIdx];
+                            const h = manualOverrides[`${rink}-${i}-h`] ?? m.h;
+                            const v = manualOverrides[`${rink}-${i}-v`] ?? m.v;
+                            if (h === +idx || v === +idx) hibasSorok[`${rink}-${i}`] = true;
+                        });
+                        uzenetek.push(`${nev(+idx)} egyszerre ${korbenJatszik[idx]} pályán játszik (${getIdopont(i)})`);
+                    });
+                });
+
+                // 3) Két csapat többször találkozik, mint a sablonban
+                Object.keys(valosParok).forEach(k => {
+                    const elvart = sablonParok[k] || 0;
+                    if (valosParok[k] <= elvart) return;
+                    const r = k.split('-').map(Number);
+                    if (r[0] === r[1]) return;   // az önmaga elleni esetet fentebb már jeleztük
+                    uzenetek.push(`${nev(r[0])} és ${nev(r[1])} ${valosParok[k]}× játszik egymással (sablon szerint ${elvart}×)`);
+                });
+
+                // 4) Meccsszám: a felülírás nem csere, a kiszorított csapat elveszít egy meccset
+                const mindenCsapat = {};
+                Object.keys(sablonMeccs).forEach(k => { mindenCsapat[k] = true; });
+                Object.keys(valosMeccs).forEach(k => { mindenCsapat[k] = true; });
+                Object.keys(mindenCsapat).forEach(idx => {
+                    const kell = sablonMeccs[idx] || 0; const van = valosMeccs[idx] || 0;
+                    if (kell === van) return;
+                    uzenetek.push(`${nev(+idx)}: ${van} meccs a sablon szerinti ${kell} helyett`);
+                });
+
+                return { uzenetek, hibasSorok };
+            }, [msz, manualOverrides, csapatok, tornaAdatok.kezdes, meccsPerc, rolbaPerc]);
+
+            const isInvalidTeam = (nev) => !nev || nev.toUpperCase() === 'SZABAD';
+
+            // --- LAPÁLLÁS ÉS BETŰMÉRET ---
+            // 1 pálya: álló A4, 2-3 pálya: fekvő A4
+            const alloLap = palyakSzama === 1;
+            // 📱 IPHONE: előnézet mérete (px) és kicsinyítése a lapállás szerint
+            const lapPx = alloLap ? { w: 793.7, h: 1122.5 } : { w: 1122.5, h: 793.7 };
+            const skala = Math.min((ablakMeret.w - 16) / lapPx.w, (ablakMeret.h * 0.45) / lapPx.h, 1);
+            // Alap betűméret és egy csapatnévnek jutó szélesség (px) pályaszám szerint
+            const alapBetu = palyakSzama === 1 ? 18 : (palyakSzama === 3 ? 13 : 15);
+            const nevHely = palyakSzama === 1 ? 290 : (palyakSzama === 3 ? 135 : 215);
+
+            // Mérőszalag (mint a jégkorongban): a túl hosszú szót kisebb betűvel írjuk, legfeljebb 65%-ig
+            const getCsapatStilus = (nev, szin) => {
+                const alap = { fontSize: `${alapBetu}px`, lineHeight: '1.1', color: szin || '#000000' };
+                if (isInvalidTeam(nev)) return alap;
+                let maxSuly = 0;
+                nev.split(' ').forEach(szo => {
+                    let suly = 0;
+                    for (let k = 0; k < szo.length; k++) {
+                        const c = szo[k];
+                        if (c.toUpperCase() === c && c.match(/[A-ZÁÉÍÓÖŐÚÜŰ]/)) suly += 1.3;
+                        else if (c === 'm' || c === 'w') suly += 1.3;
+                        else if ('iltfj.-'.includes(c)) suly += 0.5;
+                        else suly += 1.0;
+                    }
+                    if (suly > maxSuly) maxSuly = suly;
+                });
+                const becsultPx = maxSuly * alapBetu * 0.55;
+                if (becsultPx > nevHely) {
+                    let arany = (nevHely / becsultPx) * 0.96;
+                    if (arany < 0.65) arany = 0.65;
+                    return { ...alap, fontSize: `${(alapBetu * arany).toFixed(1)}px`, lineHeight: '1.05' };
+                }
+                return alap;
+            };
+
+            return (
+                <div className="flex flex-col min-h-screen font-sans bg-slate-200">{/* 📱 IPHONE: egymás alatt, görgethető */}
+
+                    {/* --- 3. BLOKK: BAL OLDAL (VEZÉRLŐPULT) --- */}
+                    <div className="w-full bg-slate-900 text-white p-5 shadow-2xl z-20 print-hide shrink-0 flex flex-col gap-4">
+
+                        <h2 className="text-xl font-black text-red-500 border-b border-slate-700 pb-3 flex justify-between items-center">
+                            3x3 SORSOLÁS v1.0
+                            <label className={`flex items-center gap-1.5 text-[10px] uppercase font-bold cursor-pointer px-2 py-1.5 rounded transition ${utkozesEngedelyezve ? 'bg-green-900/40 text-green-400' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+                                <input type="checkbox" checked={utkozesEngedelyezve} onChange={() => setUtkozesEngedelyezve(!utkozesEngedelyezve)} className="accent-green-500 w-3 h-3"/>
+                                Testvérharc OK
+                            </label>
+                        </h2>
+
+                        {/* NAVIGÁCIÓS GOMBOK */}
+                        <div className="flex flex-col gap-2">
+                            <a href="jegkorong_iphone.html" className="w-full bg-blue-700 hover:bg-blue-600 text-white text-center font-bold py-2 rounded-lg shadow-md transition-all text-xs uppercase tracking-widest">
+                                <span className="text-lg leading-none align-middle mr-1.5">🏒</span>Jégkorong
+                            </a>
+                            {/* 📱 IPHONE: az Inline gomb telefonon nincs (zárt iPhone-os kör) */}
+                            <a href="3x3_iphone.html" className="w-full bg-red-700 hover:bg-red-600 text-white text-center font-bold py-2 rounded-lg shadow-md transition-all text-xs uppercase tracking-widest ring-2 ring-white">
+                                <span className="text-lg leading-none align-middle mr-1.5">🥅</span>U12 3x3
+                            </a>
+                        </div>
+
+                        <div className="bg-yellow-900/30 border border-yellow-600/50 rounded-lg p-3">
+                            <label className="block text-yellow-500 uppercase font-black mb-2 tracking-widest text-[10px]">🪄 Varázsdoboz (Beolvasás)</label>
+                            <textarea value={pastedData} onChange={handleExcelPaste} placeholder="Másold be ide a tornát..." className="w-full bg-slate-800/80 p-2 rounded border border-slate-600 text-slate-200 text-sm h-20 focus:outline-none focus:border-yellow-500"/>
+                        </div>
+
+                        {/* SORSOLÁS-ELLENŐRZÉS: a kézi felülírások után keletkezett hibák */}
+                        {ellenorzes.uzenetek.length > 0 && (
+                            <div className="bg-red-900/40 border border-red-700 rounded-lg p-3 space-y-1">
+                                <div className="text-red-300 uppercase font-black tracking-widest text-[10px]">
+                                    ⚠️ Sorsolás-ellenőrzés ({ellenorzes.uzenetek.length})
+                                </div>
+                                {ellenorzes.uzenetek.map((uzenet, ui) => (
+                                    <div key={ui} className="text-red-200 text-[11px] leading-snug">• {uzenet}</div>
+                                ))}
+                                <div className="text-red-400/70 text-[10px] pt-1">A piros keret csak a képernyőn látszik, a nyomtatásba nem kerül bele.</div>
+                            </div>
+                        )}
+
+                        <div className="space-y-4 text-sm">
+                            <section className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                                <label className="block text-slate-400 uppercase font-bold mb-3 text-xs">Alapbeállítások</label>
+
+                                <div className="grid grid-cols-2 gap-2 mb-3">
+                                    <input type="text" value={tornaAdatok.korosztaly} onChange={e => setTornaAdatok({...tornaAdatok, korosztaly: e.target.value})} className="bg-slate-700 p-2 rounded font-bold text-sm outline-none text-center" placeholder="Korosztály (pl. U12 3x3)" />
+                                    <input type="time" value={tornaAdatok.kezdes} onChange={e => setTornaAdatok({...tornaAdatok, kezdes: e.target.value})} className={`p-2 rounded border font-bold text-center text-sm ${!tornaAdatok.kezdes ? 'bg-red-900/80 border-red-500' : 'bg-slate-700 border-slate-600'}`}/>
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <select value={tornaAdatok.szint} onChange={e => setTornaAdatok({...tornaAdatok, szint: e.target.value})} className="w-full p-2 rounded text-sm font-bold border border-slate-600 bg-slate-700 outline-none">
+                                        <optgroup label="Kispálya (1 pálya, álló lap)">
+                                            <option value="4cs_4m_1p">4 Csapat / 1 Pálya</option>
+                                            <option value="5cs_4m_1p">5 Csapat / 1 Pálya</option>
+                                            <option value="6cs_4m_1p">6 Csapat / 1 Pálya</option>
+                                        </optgroup>
+                                        <optgroup label="Nagypálya (fekvő lap)">
+                                            <option value="4cs_4m_2p_side">4 Csapat / 2 Pálya</option>
+                                            <option value="5cs_4m_2p_side">5 Csapat / 2 Pálya</option>
+                                            <option value="6cs_4m_2p_side">6 Csapat / 2 Pálya</option>
+                                            <option value="6cs_4m_3p_side">6 Csapat / 3 Pálya</option>
+                                        </optgroup>
+                                    </select>
+                                    <input type="number" placeholder="Meccs" className="w-16 bg-slate-700 text-white p-2 rounded text-sm font-bold border border-slate-600 text-center" value={tornaAdatok.egyediMeccsPerc} onChange={(e) => setTornaAdatok({ ...tornaAdatok, egyediMeccsPerc: e.target.value })} title="Meccs (perc)"/>
+                                    <input type="number" placeholder="Rolba" className="w-16 bg-slate-700 text-white p-2 rounded text-sm font-bold border border-slate-600 text-center" value={tornaAdatok.egyediSzunetPerc} onChange={(e) => setTornaAdatok({ ...tornaAdatok, egyediSzunetPerc: e.target.value })} title="Rolba (perc)"/>
+                                </div>
+                            </section>
+
+                            <section className="space-y-3">
+                                <input type="text" value={tornaAdatok.sorszam} onChange={e => setTornaAdatok({...tornaAdatok, sorszam: e.target.value})} className="w-full bg-slate-800 p-2.5 rounded border border-slate-700 font-bold text-sm" placeholder="Torna sorszáma / neve (pl. Dunaújvárosi Acélbikák (Baja))"/>
+                                <input type="date" value={tornaAdatok.datum} onChange={e => setTornaAdatok({...tornaAdatok, datum: e.target.value})} className="w-full bg-slate-800 p-2.5 rounded border border-slate-700 text-white text-sm font-bold"/>
+                                <input type="text" list="helyszin-lista" value={tornaAdatok.helyszin} onChange={e => setTornaAdatok({...tornaAdatok, helyszin: e.target.value})} className="w-full bg-slate-800 p-2.5 rounded border border-slate-700 text-sm" placeholder="Helyszín neve (pl. Budai Jégpálya)"/>
+                                <datalist id="helyszin-lista">{csarnokNevekLista.map(nev => <option key={nev} value={nev} />)}</datalist>
+                                <datalist id="csapat-lista">{csapatNevekLista.map(nev => <option key={nev} value={nev} />)}</datalist>
+                            </section>
+
+                            <section className="pt-4 border-t border-slate-700">
+                                <div className="flex justify-between items-center mb-3">
+                                    <label className="block text-slate-400 uppercase font-bold text-xs">Résztvevő Csapatok</label>
+                                    {/* VISSZA GOMB: az utolsó csere visszavonása */}
+                                    <button onClick={handleVissza} disabled={elozmenyek.length === 0} title="Az utolsó csere visszavonása"
+                                        className={`text-xs font-bold px-2 py-1 rounded transition ${elozmenyek.length === 0 ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-500 text-white'}`}>
+                                        ↶ Vissza{elozmenyek.length > 0 ? ` (${elozmenyek.length})` : ''}
+                                    </button>
+                                </div>
+                                {csapatok.map((cs, i) => {
+                                    const maxCsapat = parseInt(tornaAdatok.szint.match(/^\d+/)?.[0] || 8);
+                                    const isNeeded = i < maxCsapat;
+                                    const isSelectedForSwap = kivalasztottCsapat === i;
+
+                                    return (
+                                        <div key={i} className={`flex items-center gap-2 mb-2 ${!isNeeded ? 'opacity-30' : ''}`}>
+                                            <span className="w-5 text-center text-slate-500 font-black text-sm">{i+1}</span>
+                                            <input type="text" list="csapat-lista" value={cs} onChange={e => {const n = [...csapatok]; n[i] = e.target.value; setCsapatok(n);}} onClick={() => isNeeded && handleTeamClick(i)} readOnly={isSelectedForSwap} className={`flex-grow p-2 rounded border text-sm font-bold transition-all cursor-pointer ${isSelectedForSwap ? 'bg-green-900/40 border-green-500 ring-2 ring-green-500' : 'bg-slate-800 border-slate-700 focus:border-blue-500'}`} placeholder={`Csapat ${i+1}`} disabled={!isNeeded} />
+                                            {/* Csapat saját színválasztója (mint a jégkorongban) */}
+                                            <input type="color" value={csapatSzinek[i]} onChange={e => {const n = [...csapatSzinek]; n[i] = e.target.value; setCsapatSzinek(n);}} className="w-8 h-8 p-0 border-0 rounded cursor-pointer bg-transparent shrink-0" disabled={!isNeeded} title="Csapat színének módosítása"/>
+                                        </div>
+                                    )
+                                })}
+                            </section>
+
+
+                            {/* --- MENTÉSI MAPPA: hova menjen a JSON (telefonon nem látszik) --- */}
+                            {mappaTamogatott && (
+                                <div className="bg-slate-800 rounded-lg border border-slate-700 p-2 space-y-1">
+                                    <div className="text-slate-400 uppercase font-bold text-[10px] tracking-widest">📁 JSON mentési mappa</div>
+                                    {[['gep', 'Gép'], ['drive', 'Felhő']].map(([kulcs, cimke]) => {
+                                        const h = mappak[kulcs];
+                                        const aktiv = aktivMappa === kulcs && !!h;
+                                        return (
+                                            <div key={kulcs} className="flex items-center gap-1.5 text-[11px]">
+                                                <button onClick={() => h ? mappaAktival(kulcs) : mappaValaszt(kulcs)}
+                                                    title={h ? 'Mostantól ide mentsen' : 'Jelölj ki egy mappát'}
+                                                    className={`w-3.5 h-3.5 shrink-0 rounded-full border-2 transition ${aktiv ? 'bg-emerald-500 border-emerald-300' : 'border-slate-500 hover:border-slate-300'}`} />
+                                                <span className="w-9 shrink-0 text-slate-400 font-bold">{cimke}</span>
+                                                <span className={`flex-grow truncate ${h ? (aktiv ? 'text-emerald-300 font-bold' : 'text-slate-300') : 'text-slate-600 italic'}`} title={h ? h.name : ''}>
+                                                    {h ? h.name : 'nincs beállítva'}
+                                                </span>
+                                                <button onClick={() => mappaValaszt(kulcs)} title="Mappa kiválasztása / cseréje"
+                                                    className="text-slate-400 hover:text-white px-1 font-bold shrink-0">✎</button>
+                                                {h && <button onClick={() => mappaTorol(kulcs)} title="Beállítás törlése"
+                                                    className="text-red-400 hover:text-red-300 px-1 font-bold shrink-0">✕</button>}
+                                            </div>
+                                        );
+                                    })}
+                                    <div className="text-[9px] text-slate-500 leading-tight pt-0.5">
+                                        {mappak[aktivMappa]
+                                            ? 'A MENTÉS egyenesen ide írja a JSON-t, letöltés nélkül.'
+                                            : 'Nincs aktív mappa — a MENTÉS sima letöltés lesz.'}
+                                    </div>
+                                </div>
+                            )}
+                            {mentesJelzes && (
+                                <div className="text-emerald-400 text-[11px] text-center font-bold truncate" title={mentesJelzes}>{mentesJelzes}</div>
+                            )}
+
+                            <div className="flex gap-2 pt-2">
+                                <button onClick={handleSaveJSON} className="flex-1 bg-emerald-700 hover:bg-emerald-600 text-white font-bold py-2.5 rounded shadow text-xs tracking-wider flex justify-center items-center">💾 MENTÉS</button>
+                                <input type="file" accept=".json" onChange={handleLoadJSON} ref={fileInputRef} className="hidden" />
+                                <button onClick={() => fileInputRef.current.click()} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-2.5 rounded shadow text-xs tracking-wider flex justify-center items-center">📂 BETÖLTÉS</button>
+                            </div>
+
+                            {/* 📱 IPHONE: PDF GOMB -- 1. elkészíti, 2. megosztás menü (Mentés a Fájlokba / Drive) */}
+                            {pdfFajl ? (
+                                <button onClick={pdfMegoszt} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3 rounded-lg shadow-lg text-sm print-hide">📤 PDF MENTÉSE (Fájlok / Drive)</button>
+                            ) : (
+                                <button onClick={pdfKeszit} disabled={pdfKeszul} className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-black py-3 rounded-lg shadow-lg text-sm print-hide">{pdfKeszul ? '⏳ PDF KÉSZÜL...' : 'PDF KÉSZÍTÉSE'}</button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* --- 4. BLOKK: JOBB OLDAL (U12 3x3 DESIGN) --- */}
+                    <div className="order-first sticky top-0 z-30 flex justify-center p-2 bg-slate-500 shadow-lg">{/* 📱 IPHONE: előnézet felül, görgetéskor is látszik */}
+                        <div style={{ width: lapPx.w * skala, height: lapPx.h * skala }}><div id="elonezet-skala" style={{ width: alloLap ? '210mm' : '297mm', height: alloLap ? '297mm' : '210mm', transform: `scale(${skala})`, transformOrigin: 'top left' }}>
+                        {/* 1 pályás sablon: álló A4 lap a nyomtatásban is */}
+                        {alloLap && <style>{'@media print { @page { size: A4 portrait; margin: 0; } }'}</style>}
+                        <div id="nyomtatasi-terulet" className={`bg-white ${alloLap ? 'w-[210mm] h-[297mm] allo-lap' : 'w-[297mm] h-[210mm]'} relative shrink-0 overflow-hidden text-black font-sans flex flex-col items-center`}>
+
+                            {/* Felső 3x3 Logó */}
+                            {/* Régi logó-sor - tartalék:
+                            <div className="w-full h-[60mm] flex justify-center items-center mt-2 mb-2">
+                                <img src="Csapat_logok/U12_3x3_LOGO.png" alt="3x3 Logo" className="h-full object-contain" onError={(e) => { e.target.style.display = 'none'; }} />
+                            </div> */}
+                            {/* 3x3 logó: magassága ugyanakkora (40 mm), mint az MJSZ logóé a jégkorong sorsoláson.
+                                Először a Csapat_logok mappában keresi, ha ott nincs, a főkönyvtárban; ha sehol, eltűnik. */}
+                            <div className="w-full h-[40mm] flex justify-center items-center mt-[8mm] mb-[4mm] shrink-0">
+                                <img src="Csapat_logok/3x3.png" alt="3x3 Logo" className="max-h-full max-w-full object-contain"
+                                    onError={(e) => { if (!e.target.dataset.masodik) { e.target.dataset.masodik = '1'; e.target.src = '3x3.png'; } else { e.target.style.display = 'none'; } }} />
+                            </div>
+
+                            {/* Táblázat konténer */}
+                            <div className={`${alloLap ? 'w-[186mm]' : 'w-[280mm]'} border-[2px] border-[#0a0a5c] flex flex-col shadow-sm relative`}>
+                                {/* Keret ráhúzva a sorokra: nyomtatásban a piros/szürke sor nem "eszi meg" a jobb oldali keretet */}
+                                <div className="absolute -inset-[2px] border-[2px] border-[#0a0a5c] pointer-events-none z-10"></div>
+
+                                {/* Fő fejléc */}
+                                <div className="bg-[#0a0a5c] text-white font-bold text-center py-2 text-[18px]">
+                                    {tornaAdatok.datum ? `${formatDatum(tornaAdatok.datum)} ` : ''}{tornaAdatok.korosztaly} {tornaAdatok.sorszam ? `- ${tornaAdatok.sorszam}` : ''} {tornaAdatok.helyszin ? `(${tornaAdatok.helyszin})` : ''}
+                                </div>
+
+                                {/* Oszlop fejlécek */}
+                                <div className="flex bg-[#0a0a5c] text-white font-bold text-center border-t-[1px] border-[#0a0a5c]">
+                                    <div className="w-[18mm] border-r-[1px] border-[#0a0a5c]"></div>
+                                    {palyaBetuk.slice(0, palyakSzama).map((rink, pIdx) => (
+                                        <div key={rink} className={`flex-1 py-1.5 ${pIdx > 0 ? 'border-l-[4px] border-white' : 'border-l-[1px] border-[#1e1e80]'}`}>
+                                            {rink} pálya {rink === 'A' ? <span className="font-normal">(rolba bejáró)</span> : ''}
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Bemelegítés Sáv (PIROS) */}
+                                <div className="flex items-stretch border-t-[1px] border-[#0a0a5c]">
+                                    <div className="w-[18mm] bg-[#0a0a5c] text-white font-bold flex justify-center items-center py-1.5 border-r-[1px] border-[#0a0a5c]">
+                                        {getIdopont(0, true)}
+                                    </div>
+                                    <div className="flex-1 bg-[#cc0000] text-white font-bold uppercase flex justify-center items-center tracking-wider text-[16px]">
+                                        Bemelegítés {bemelegitesPerc} PERC
+                                    </div>
+                                </div>
+
+                                {/* Meccsek és Szünetek Sorai */}
+                                {msz.map((row, i) => {
+                                    const ido = getIdopont(i);
+
+                                    if (row.kor === 'ROLBA') {
+                                        return (
+                                            <div key={i} className="flex items-stretch border-t-[1px] border-gray-400">
+                                                <div className="w-[18mm] bg-[#0a0a5c] text-white font-bold flex justify-center items-center py-1.5 border-r-[1px] border-[#0a0a5c]">
+                                                    {ido}
+                                                </div>
+                                                <div className="flex-1 bg-[#d1d5db] text-black font-bold flex justify-center items-center">
+                                                    Rolba
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+
+                                    if (row.kor === 'ZARAS') {
+                                        return (
+                                            <div key={i} className="flex items-stretch border-t-[1px] border-gray-400">
+                                                <div className="w-[18mm] bg-[#0a0a5c] text-white font-bold flex justify-center items-center py-1.5 border-r-[1px] border-[#0a0a5c]">
+                                                    {ido}
+                                                </div>
+                                                <div className="flex-1 bg-[#0a0a5c] text-white font-bold flex justify-center items-center py-1.5">
+                                                    Torna vége
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+
+                                    // --- ZEBRA (mint a jégkorongban): rolba után újraindul, páros sor átlátszó, páratlan szürkés ---
+                                    let lastRolbaIdx = -1;
+                                    for (let k = 0; k < i; k++) { if (msz[k].kor === 'ROLBA') lastRolbaIdx = k; }
+                                    const relativIdx = i - (lastRolbaIdx + 1);
+                                    const zebraBg = relativIdx % 2 === 0 ? 'transparent' : 'rgba(203, 213, 225, 0.5)';
+
+                                    return (
+                                        <div key={i} className={`flex items-stretch border-t-[1px] border-gray-400 bg-white ${alloLap ? 'min-h-[11mm]' : 'min-h-[10mm]'}`}>
+                                            <div className="w-[18mm] bg-[#0a0a5c] text-white font-bold flex justify-center items-center py-1.5 border-r-[1px] border-[#0a0a5c]">
+                                                {ido}
+                                            </div>
+
+                                            {palyaBetuk.slice(0, palyakSzama).map(rink => {
+                                                const meccs = row.meccsek[palyaBetuk.indexOf(rink)];
+                                                // Pályák között vastag elválasztó, az A pálya előtt marad a vékony
+                                                const palyaHatar = palyaBetuk.indexOf(rink) > 0 ? 'border-l-[4px] border-[#0a0a5c]' : 'border-l-[1px] border-gray-400';
+                                                if (!meccs) return <div key={rink} className={`flex-1 ${palyaHatar}`} style={{ backgroundColor: zebraBg }}></div>;
+
+                                                const valosH = csapatok[manualOverrides[`${rink}-${i}-h`] ?? meccs.h];
+                                                const valosV = csapatok[manualOverrides[`${rink}-${i}-v`] ?? meccs.v];
+                                                const isTestver = !utkozesEngedelyezve && areSameClub(valosH, valosV);
+
+                                                return (
+                                                    <div key={rink} className={`flex-1 flex ${palyaHatar} ${isTestver ? 'testver-jelzes' : ''}${ellenorzes.hibasSorok[`${rink}-${i}`] ? ' hiba-jelzes' : ''}`} style={{ backgroundColor: isTestver ? '#fef08a' : zebraBg, '--zebra': zebraBg, WebkitPrintColorAdjust: 'exact' }}>
+                                                        <div className="flex-1 w-0 min-w-0 flex justify-center items-center text-center p-1 break-words cursor-pointer hover:bg-blue-100" onClick={() => handleTableTeamClick(rink, i, 'h')} style={getCsapatStilus(valosH, csapatSzinek[manualOverrides[`${rink}-${i}-h`] ?? meccs.h])}>
+                                                            {isInvalidTeam(valosH) ? '' : valosH}
+                                                        </div>
+                                                        <div className="w-[8mm] flex justify-center items-center border-l-[1px] border-r-[1px] border-gray-400 font-bold text-gray-500">
+                                                            —
+                                                        </div>
+                                                        <div className="flex-1 w-0 min-w-0 flex justify-center items-center text-center p-1 break-words cursor-pointer hover:bg-blue-100" onClick={() => handleTableTeamClick(rink, i, 'v')} style={getCsapatStilus(valosV, csapatSzinek[manualOverrides[`${rink}-${i}-v`] ?? meccs.v])}>
+                                                            {isInvalidTeam(valosV) ? '' : valosV}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    );
+                                })}
+
+                            </div>
+                        </div>
+                        </div></div>{/* 📱 IPHONE: kicsinyítő keret vége */}
+                    </div>
+                </div>
+            );
+        };
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<SorsolasApp />);
+    </script>
+</body>
+</html>
