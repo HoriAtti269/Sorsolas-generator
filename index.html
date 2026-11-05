@@ -201,7 +201,9 @@
 
             const formatDatum = (dateStr) => {
                 if (!dateStr) return '';
-                const dateObj = new Date(dateStr);
+                // const dateObj = new Date(dateStr);   // régi: ez UTC éjfélnek veszi a dátumot -> nyugatabbra (pl. USA) egy nappal korábbi napot mutat
+                const reszek = String(dateStr).split('-').map(Number);
+                const dateObj = reszek.length === 3 ? new Date(reszek[0], reszek[1] - 1, reszek[2]) : new Date(dateStr);   // helyi idő szerinti nap, bármelyik időzónában
                 if (isNaN(dateObj)) return dateStr;
                 const napok = ['vasárnap', 'hétfő', 'kedd', 'szerda', 'csütörtök', 'péntek', 'szombat'];
                 return `${dateObj.getFullYear()}.${String(dateObj.getMonth() + 1).padStart(2, '0')}.${String(dateObj.getDate()).padStart(2, '0')}. ${napok[dateObj.getDay()]}`;
