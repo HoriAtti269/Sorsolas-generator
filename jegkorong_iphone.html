@@ -1462,7 +1462,9 @@
                             </div>
 
                             {/* --- LÁBLÉC --- */}
-                            <div className="absolute bottom-[4mm] left-[8mm] right-[8mm] flex justify-between text-[11px] font-bold text-gray-500 tracking-wide">
+                            {/* Régi: <div className="absolute bottom-[4mm] left-[8mm] right-[8mm] flex justify-between text-[11px] font-bold text-gray-500 tracking-wide"> */}
+                            {/* Mac/iPhone betűjével a régi nem fért ki egy sorba: kisebb betű, betűköz nélkül, sortörés tiltva */}
+                            <div className="absolute bottom-[4mm] left-[8mm] right-[8mm] flex justify-between gap-3 text-[10.5px] font-bold text-gray-500 whitespace-nowrap">
                                 <div>http://jegkorongszovetseg.hu</div>
                                 <div className="text-red-700 uppercase">A tornán csak érvényes versenyengedéllyel, és érvényes sportorvosival rendelkező játékosok játszhatnak!</div>
                                 <div>horvath.attila@icehockey.hu</div>
