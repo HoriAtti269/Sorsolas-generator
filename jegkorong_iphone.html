@@ -394,7 +394,9 @@
             const autoSelectTemplate = (currentAdatok, currentCsapatok, forceText = null) => {
                 const talaltCsapatokSzama = currentCsapatok.filter(c => c && c.trim() !== '' && c !== 'SZABAD').length;
                 // "N pályán": a helyszínből, az extra infóból és a beolvasáskor eltárolt pálya-jelzésből
-                const searchStr = ((currentAdatok.helyszin || '') + " " + (currentAdatok.info || '') + " " + (currentAdatok.palyaJelzes || '')).toUpperCase();
+                // const searchStr = ((currentAdatok.helyszin || '') + " " + (currentAdatok.info || '') + " " + (currentAdatok.palyaJelzes || '')).toUpperCase();   // régi: csak a számmal írt "N pályán"-t ismerte
+                // A betűvel írt pályaszámot számmá alakítjuk ("KÉT PÁLYÁN" -> "2 PÁLYÁN"), így az alábbi vizsgálatok mindkettőt értik
+                const searchStr = ((currentAdatok.helyszin || '') + " " + (currentAdatok.info || '') + " " + (currentAdatok.palyaJelzes || '')).toUpperCase().replace(/(^|[^A-ZÁÉÍÓÖŐÚÜŰ])(EGY|KÉT|KETTŐ|KETTÖ|HÁROM|NÉGY)\s*(?=PÁLY)/g, (m, elo, szo) => elo + ({ 'EGY': '1', 'KÉT': '2', 'KETTŐ': '2', 'KETTÖ': '2', 'HÁROM': '3', 'NÉGY': '4' })[szo] + ' ');
                 const u8 = currentAdatok.korosztaly === 'U8';
                 const isC = currentAdatok.csoport === 'C';
 
@@ -710,7 +712,8 @@
 
                 // --- "N PÁLYÁN" JELZÉS ELTÁROLÁSA (így a Radar sem felejti el) ---
                 const osszesCella = rawLines.flatMap(sor => sor.split('\t').map(c => c.trim()));
-                ujAdatok.palyaJelzes = osszesCella.find(c => c.match(/\b[1-4]\s*pályá/i)) || osszesCella.find(c => c.match(/kispály/i)) || '';
+                // ujAdatok.palyaJelzes = osszesCella.find(c => c.match(/\b[1-4]\s*pályá/i)) || osszesCella.find(c => c.match(/kispály/i)) || '';   // régi: csak számmal
+                ujAdatok.palyaJelzes = osszesCella.find(c => c.match(/(^|[^a-záéíóöőúüű])([1-4]|egy|két|kettő|kettö|három|négy)\s*pályá/i)) || osszesCella.find(c => c.match(/kispály/i)) || '';   // számmal VAGY betűvel
 
                 // --- AZ ÚJ LOGIKA: ITT HÍVJUK MEG A SABLONVÁLASZTÓT, CSAK EGYSZER ---
                 if (talaltCsapatokSzama > 0) {

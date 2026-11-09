@@ -365,7 +365,9 @@
 // --- KÖZPONTI INTELLIGENCIA: AUTOMATIKUS SABLONVÁLASZTÓ MOTOR ---
             const autoSelectTemplate = (currentAdatok, currentCsapatok, forceText = null) => {
                 const talaltCsapatokSzama = currentCsapatok.filter(c => c && c.trim() !== '' && c !== 'SZABAD').length;
-                const searchStr = (forceText || currentAdatok.helyszin + " " + currentAdatok.info).toUpperCase();
+                // const searchStr = (forceText || currentAdatok.helyszin + " " + currentAdatok.info).toUpperCase();   // régi: csak a számmal írt "N pályán"-t ismerte
+                // A betűvel írt pályaszámot számmá alakítjuk ("KÉT PÁLYÁN" -> "2 PÁLYÁN"), így az alábbi vizsgálatok mindkettőt értik
+                const searchStr = (forceText || currentAdatok.helyszin + " " + currentAdatok.info).toUpperCase().replace(/(^|[^A-ZÁÉÍÓÖŐÚÜŰ])(EGY|KÉT|KETTŐ|KETTÖ|HÁROM|NÉGY)\s*(?=PÁLY)/g, (m, elo, szo) => elo + ({ 'EGY': '1', 'KÉT': '2', 'KETTŐ': '2', 'KETTÖ': '2', 'HÁROM': '3', 'NÉGY': '4' })[szo] + ' ');
                 const u8 = currentAdatok.korosztaly === 'U8';
                 const isC = currentAdatok.csoport === 'C';
 

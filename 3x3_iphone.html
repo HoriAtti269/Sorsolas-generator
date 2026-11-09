@@ -385,15 +385,29 @@
                 const fejCellak = [];
                 const csapatSorok = [];
                 let resztvevokUtan = false;
+                // "3 pályán" / "két pályán" / "kispálya": ez a pályaszám, NEM csapat (bárhol állhat, akár a "Résztvevők:" sorában)
+                const palyaSzavak = { egy: 1, két: 2, kettő: 2, ketto: 2, három: 3, harom: 3, négy: 4, negy: 4 };
+                const palyaJelzesRegex = /^(\d|egy|két|kettő|ketto|három|harom|négy|negy)\s*pályá|kispály/i;
+                let palyaJelzes = 0;
+                const palyaCella = (c) => {
+                    if (!palyaJelzesRegex.test(c)) return false;
+                    if (/kispály/i.test(c)) palyaJelzes = 1;
+                    else { const sz = c.trim().split(/\s+/)[0].toLowerCase(); palyaJelzes = parseInt(sz, 10) || palyaSzavak[sz] || 0; }
+                    return true;
+                };
                 rawLines.forEach(sor => {
                     if (/^résztvevők/i.test(sor)) {
                         resztvevokUtan = true;
-                        const maradek = sor.replace(/^résztvevők\s*:?/i, '').trim();
+                        const maradek = sor.replace(/^résztvevők\s*:?/i, '').split('\t').map(c => c.trim()).filter(c => c !== '' && !palyaCella(c)).join('\t');
                         if (maradek) csapatSorok.push(maradek);
                         return;
                     }
-                    if (resztvevokUtan) { csapatSorok.push(sor); return; }
-                    sor.split('\t').map(c => c.trim()).filter(c => c !== '').forEach(c => {
+                    if (resztvevokUtan) {
+                        const cellak = sor.split('\t').map(c => c.trim()).filter(c => c !== '' && !palyaCella(c));
+                        if (cellak.length) csapatSorok.push(cellak.join('\t'));
+                        return;
+                    }
+                    sor.split('\t').map(c => c.trim()).filter(c => c !== '' && !palyaCella(c)).forEach(c => {
                         // "Résztvevők" sor nélkül (pl. XLS): a számozott cella csapat
                         if (/^\d{1,2}[\.\)](?!\d)/.test(c)) csapatSorok.push(c);
                         else fejCellak.push(c);
@@ -440,7 +454,11 @@
                 for (let entry of csarnokAdatbazis) {
                     if (entry.kulcsszavak.some(k => helyszinSzavak.some(sz => sz.startsWith(k.toUpperCase())))) { kapacitas = entry.kapacitas; break; }
                 }
-                const ujSzint = `${talaltCsapatokSzama}cs_4m_${kapacitas === 1 ? '1p' : '2p_side'}`;
+                // const ujSzint = `${talaltCsapatokSzama}cs_4m_${kapacitas === 1 ? '1p' : '2p_side'}`;   // régi: csak a csarnok döntött
+                const alapSzint = `${talaltCsapatokSzama}cs_4m_${kapacitas === 1 ? '1p' : '2p_side'}`;
+                const jelzettSzint = palyaJelzes === 1 ? `${talaltCsapatokSzama}cs_4m_1p` : (palyaJelzes > 1 ? `${talaltCsapatokSzama}cs_4m_${palyaJelzes}p_side` : '');
+                const ujSzint = (jelzettSzint && sablonAdatbazis[jelzettSzint]) ? jelzettSzint : alapSzint;
+                if (jelzettSzint && !sablonAdatbazis[jelzettSzint] && talaltCsapatokSzama > 0) alert(`"${palyaJelzes} pályán" ${talaltCsapatokSzama} csapattal: erre nincs 3x3 sablon, a csarnok szerinti alap sablont tettem be.`);
 
                 setTornaAdatok({
                     ...ujAdatok,
